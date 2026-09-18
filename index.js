@@ -6,8 +6,9 @@ app.use(express.json());
 const API_KEY = process.env.API_KEY;
 const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
+const MY_PASSWORD = process.env.MY_PASSWORD; // Твой секретный пароль
 
-// --- ИНТЕРФЕЙС (Красивая страничка) ---
+// --- ИНТЕРФЕЙС С ЗАЩИТОЙ ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -15,57 +16,65 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Мой ИИ Агент</title>
+        <title>Вход в систему</title>
         <style>
-            body { font-family: sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-            #chat { width: 100%; max-width: 500px; background: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; height: 400px; overflow-y: auto; margin-bottom: 10px; }
-            .msg { margin-bottom: 10px; padding: 8px 12px; border-radius: 15px; max-width: 80%; }
-            .user { background: #0084ff; color: white; align-self: flex-end; margin-left: auto; }
-            .bot { background: #e4e6eb; color: black; }
-            .input-area { display: flex; width: 100%; max-width: 500px; gap: 10px; }
-            input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
-            button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
-            button:disabled { background: #ccc; }
+            body { font-family: sans-serif; background: #2c3e50; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .login-box { background: #34495e; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); text-align: center; }
+            input { padding: 10px; border-radius: 5px; border: none; margin-bottom: 10px; width: 200px; }
+            button { padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
+            #chat-container { display: none; flex-direction: column; width: 100%; max-width: 600px; background: #f0f2f5; color: black; height: 90vh; border-radius: 10px; padding: 20px; }
+            #messages { flex: 1; overflow-y: auto; background: white; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
+            .user { text-align: right; color: blue; }
+            .bot { text-align: left; color: green; }
         </style>
     </head>
     <body>
-        <h2>🤖 Мой ИИ Агент</h2>
-        <div id="chat"></div>
-        <div class="input-area">
-            <input type="text" id="userInp" placeholder="Напишите сообщение..." onkeypress="if(event.key==='Enter') send()">
-            <button id="btn" onclick="send()">Отправить</button>
+        <div id="login-area" class="login-box">
+            <h2>Введите пароль доступа</h2>
+            <input type="password" id="passInp" placeholder="Пароль...">
+            <br>
+            <button onclick="checkPass()">Войти</button>
+        </div>
+
+        <div id="chat-container">
+            <h3 style="text-align:center">🤖 Защищенный Агент</h3>
+            <div id="messages"></div>
+            <div style="display:flex; gap:10px">
+                <input type="text" id="userMsg" style="flex:1" placeholder="Ваш вопрос...">
+                <button onclick="send()" id="sendBtn">Отправить</button>
+            </div>
         </div>
 
         <script>
-            async function send() {
-                const inp = document.getElementById('userInp');
-                const chat = document.getElementById('chat');
-                const btn = document.getElementById('btn');
-                const text = inp.value.trim();
-                if (!text) return;
+            let savedPass = '';
+            function checkPass() {
+                savedPass = document.getElementById('passInp').value;
+                document.getElementById('login-area').style.display = 'none';
+                document.getElementById('chat-container').style.display = 'flex';
+                document.body.style.background = '#bdc3c7';
+            }
 
-                // Добавляем сообщение пользователя
-                chat.innerHTML += '<div class="msg user">' + text + '</div>';
-                inp.value = '';
-                btn.disabled = true;
-                chat.scrollTop = chat.scrollHeight;
+            async function send() {
+                const msgInp = document.getElementById('userMsg');
+                const msgBox = document.getElementById('messages');
+                const text = msgInp.value;
+                if(!text) return;
+
+                msgBox.innerHTML += '<p class="user"><b>Вы:</b> ' + text + '</p>';
+                msgInp.value = '';
 
                 try {
                     const res = await fetch('/ask', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text })
+                        body: JSON.stringify({ message: text, password: savedPass })
                     });
                     const data = await res.json();
-                    const reply = data.reply || data.error || 'Ошибка';
-                    
-                    // Добавляем ответ бота
-                    chat.innerHTML += '<div class="msg bot">' + reply + '</div>';
-                } catch (e) {
-                    chat.innerHTML += '<div class="msg bot">Ошибка связи с сервером</div>';
+                    msgBox.innerHTML += '<p class="bot"><b>ИИ:</b> ' + (data.reply || data.error) + '</p>';
+                } catch(e) {
+                    msgBox.innerHTML += '<p>Ошибка связи</p>';
                 }
-                btn.disabled = false;
-                chat.scrollTop = chat.scrollHeight;
+                msgBox.scrollTop = msgBox.scrollHeight;
             }
         </script>
     </body>
@@ -73,10 +82,16 @@ app.get('/', (req, res) => {
   `);
 });
 
-// --- ЛОГИКА АГЕНТА ---
+// --- ЛОГИКА С ПРОВЕРКОЙ ПАРОЛЯ ---
 app.post('/ask', async (req, res) => {
+  const { message, password } = req.body;
+
+  // Проверка пароля прямо на сервере
+  if (password !== MY_PASSWORD) {
+    return res.status(401).json({ error: "Ошибка доступа: Неверный пароль!" });
+  }
+
   try {
-    const { message } = req.body;
     const response = await fetch(`${BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -89,13 +104,9 @@ app.post('/ask', async (req, res) => {
       })
     });
     const data = await response.json();
-    if (data.error) {
-      res.json({ reply: 'Ошибка API: ' + data.error.message });
-    } else {
-      res.json({ reply: data.choices[0].message.content });
-    }
+    res.json({ reply: data.choices[0].message.content });
   } catch (err) {
-    res.json({ reply: 'Ошибка сервера: ' + err.message });
+    res.json({ error: "Ошибка API или сервера" });
   }
 });
 
