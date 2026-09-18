@@ -11,7 +11,6 @@ const MY_PASSWORD = process.env.MY_PASSWORD;
 let chatHistory = []; 
 let personalBase = "Машина: Hyundai Solaris. Диета: Стол №5. Кот любит кролика."; 
 
-// Функция погоды
 async function getWeather(city) {
   try {
     const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
@@ -19,7 +18,6 @@ async function getWeather(city) {
   } catch (e) { return "недоступно"; }
 }
 
-// --- ИНТЕРФЕЙС С ПОДДЕРЖКОЙ КАРТИНКИ ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -35,12 +33,12 @@ app.get('/', (req, res) => {
             #login-screen { position: fixed; inset: 0; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 100; }
             .login-box { background: white; padding: 20px; border-radius: 10px; text-align: center; }
             #messages { flex: 1; overflow-y: auto; padding: 20px; }
-            .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; line-height: 1.5; }
+            .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 85%; line-height: 1.5; word-wrap: break-word; }
             .user { background: #0084ff; color: white; margin-left: auto; }
-            .bot { background: white; border: 1px solid #ddd; }
-            .bot img { max-width: 100%; border-radius: 5px; margin-top: 10px; border: 1px solid #ccc; }
+            .bot { background: white; border: 1px solid #ddd; position: relative; }
+            .bot img { max-width: 100%; border-radius: 8px; margin-top: 10px; display: block; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
             textarea { width: 100%; height: 120px; margin-top: 10px; background: #2c3e50; color: white; border: 1px solid #555; padding: 5px; }
-            .input-area { padding: 20px; display: flex; gap: 10px; background: white; }
+            .input-area { padding: 15px; display: flex; gap: 10px; background: white; }
             input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 5px; }
             button { padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
         </style>
@@ -65,7 +63,7 @@ app.get('/', (req, res) => {
             <div class="input-area">
                 <button onclick="toggleVoice()" id="micBtn" style="background:#e67e22">🎤</button>
                 <input type="text" id="userInput" placeholder="Спроси или попроси нарисовать..." onkeypress="if(event.key==='Enter') send()">
-                <button onclick="send()">Отправить</button>
+                <button onclick="send()" id="sendBtn">Отправить</button>
             </div>
         </div>
         <script>
@@ -85,21 +83,30 @@ app.get('/', (req, res) => {
             async function send() {
                 const inp = document.getElementById('userInput');
                 const box = document.getElementById('messages');
+                const btn = document.getElementById('sendBtn');
                 const text = inp.value; if(!text) return;
+
                 box.innerHTML += '<div class="msg user"><b>Вы:</b> ' + text + '</div>';
                 inp.value = '';
+                btn.disabled = true;
+
                 const res = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: text, password: psw }) });
                 const data = await res.json();
                 
-                let botContent = data.reply;
-                // Если в ответе есть ссылка на картинку, превращаем её в тег img
-                if (botContent.includes('https://pollinations.ai/p/')) {
-                    const imgUrl = botContent.match(/https:\/\/pollinations.ai\/p\/[^\s]+/)[0];
-                    botContent = botContent.replace(imgUrl, '<br><img src="' + imgUrl + '" alt="ИИ Генерация">');
+                let botReply = data.reply || "Ошибка сервера";
+
+                // УЛУЧШЕННЫЙ ПОИСК КАРТИНКИ В ТЕКСТЕ
+                const urlRegex = /(https?:\/\/pollinations\.ai\/p\/[^\s\)\?]+(\?[^\s\)\\]+)?)/gi;
+                const foundUrl = botReply.match(urlRegex);
+                
+                if (foundUrl) {
+                    const imgUrl = foundUrl[0].replace(/\)$/, ''); // Убираем скобку, если ИИ её добавил
+                    botReply = botReply.replace(urlRegex, '') + '<br><img src="' + imgUrl + '" onload="window.scrollTo(0,document.body.scrollHeight)">';
                 }
 
-                box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + botContent + '</div>';
+                box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + botReply + '</div>';
                 box.scrollTop = box.scrollHeight;
+                btn.disabled = false;
             }
         </script>
     </body>
@@ -115,11 +122,14 @@ app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.status(401).json({ error: "Нет доступа" });
 
-    const history = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
-    const systemPrompt = `Ты агент Олега. База: ${personalBase}. Память: ${history}. 
-    ПРАВИЛА: 
-    1. Погода: ответь TOOL:WEATHER(Город). 
-    2. Рисование: Если просят нарисовать, создай ссылку: https://pollinations.ai/p/[описание_на_английском]?width=512&height=512&seed=[случайное_число]`;
+    const history = chatHistory.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
+    const systemPrompt = `Ты агент Олега. 
+    Твоя база знаний: ${personalBase}. 
+    Последние сообщения: ${history}. 
+    ИНСТРУКЦИИ: 
+    1. Погода: Если спрашивают погоду, ответь TOOL:WEATHER(Город). 
+    2. Рисование: Если просят нарисовать, напиши описание на английском в этой ссылке: https://pollinations.ai/p/[description]?width=1024&height=1024&seed=[random] 
+    Никогда не используй Markdown разметку для ссылок на фото, пиши просто ссылку.`;
 
     try {
         let response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -137,7 +147,7 @@ app.post('/ask', async (req, res) => {
                 const final = await fetch(`${BASE_URL}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-                    body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'user', content: message }, { role: 'system', content: `Погода: ${weather}. Ответь кратко.` }] })
+                    body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'user', content: message }, { role: 'system', content: `Реальная погода: ${weather}. Ответь кратко.` }] })
                 });
                 const finalData = await final.json();
                 reply = finalData.choices[0].message.content;
@@ -145,9 +155,8 @@ app.post('/ask', async (req, res) => {
         }
 
         chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
-        if (chatHistory.length > 10) chatHistory.shift();
         res.json({ reply });
-    } catch (err) { res.json({ error: "Ошибка" }); }
+    } catch (err) { res.json({ error: "Ошибка сети" }); }
 });
 
 app.listen(process.env.PORT || 3000);
