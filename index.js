@@ -8,17 +8,9 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const MY_PASSWORD = process.env.MY_PASSWORD;
 
-// Функция-инструмент: идёт в интернет за реальной погодой
-async function getWeather(city) {
-  try {
-    // Используем бесплатный погодный сервис wttr.in
-    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
-    const text = await res.text();
-    return text.trim(); // Вернет например: "+18°C Ясно"
-  } catch (e) {
-    return "не удалось узнать погоду";
-  }
-}
+// --- ПЕРЕМЕННЫЕ ДЛЯ ПАМЯТИ ---
+let chatHistory = []; // Тут храним последние 10 сообщений
+let personalBase = "Машина: Hyundai Solaris (щетки 650/400). Диета: Стол №5. Кот любит кролика."; // База знаний
 
 // --- ИНТЕРФЕЙС ---
 app.get('/', (req, res) => {
@@ -28,65 +20,82 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Вход в систему</title>
+        <title>ИИ Агент с Памятью</title>
         <style>
-            body { font-family: sans-serif; background: #2c3e50; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .login-box { background: #34495e; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); text-align: center; }
-            input { padding: 10px; border-radius: 5px; border: none; margin-bottom: 10px; width: 200px; }
-            button { padding: 10px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
-            #chat-container { display: none; flex-direction: column; width: 100%; max-width: 600px; background: #f0f2f5; color: black; height: 90vh; border-radius: 10px; padding: 20px; }
-            #messages { flex: 1; overflow-y: auto; background: white; padding: 10px; border-radius: 5px; margin-bottom: 10px; }
-            .user { text-align: right; color: blue; }
-            .bot { text-align: left; color: green; }
+            body { font-family: sans-serif; background: #2c3e50; margin: 0; display: flex; height: 100vh; }
+            #sidebar { width: 250px; background: #34495e; color: white; padding: 15px; display: flex; flex-direction: column; }
+            #main { flex: 1; display: flex; flex-direction: column; background: #f0f2f5; }
+            #login-screen { position: fixed; inset: 0; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 100; }
+            .login-box { background: white; padding: 20px; border-radius: 10px; color: black; text-align: center; }
+            #messages { flex: 1; overflow-y: auto; padding: 20px; }
+            .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; }
+            .user { background: #0084ff; color: white; margin-left: auto; }
+            .bot { background: white; border: 1px solid #ddd; }
+            textarea { width: 100%; height: 100px; margin-top: 10px; }
+            .input-area { padding: 20px; display: flex; gap: 10px; background: white; }
+            input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; }
+            button { padding: 10px 20px; background: #27ae60; color: white; border: none; cursor: pointer; }
         </style>
     </head>
     <body>
-        <div id="login-area" class="login-box">
-            <h2>Введите пароль доступа</h2>
-            <input type="password" id="passInp" placeholder="Пароль...">
-            <br>
-            <button onclick="checkPass()">Войти</button>
-        </div>
-
-        <div id="chat-container">
-            <h3 style="text-align:center">🕵️‍♂️ Защищенный ИИ-Агент</h3>
-            <div id="messages"></div>
-            <div style="display:flex; gap:10px">
-                <input type="text" id="userMsg" style="flex:1" placeholder="Задайте вопрос (например, какая погода в Москве?)..." onkeypress="if(event.key==='Enter') send()">
-                <button onclick="send()" id="sendBtn">Отправить</button>
+        <div id="login-screen">
+            <div class="login-box">
+                <h2>Доступ закрыт</h2>
+                <input type="password" id="pass" placeholder="Пароль">
+                <button onclick="login()">Войти</button>
             </div>
         </div>
 
-        <script {screen.scrollTop = screen.scrollHeight}>
-            let savedPass = '';
-            function checkPass() {
-                savedPass = document.getElementById('passInp').value;
-                document.getElementById('login-area').style.display = 'none';
-                document.getElementById('chat-container').style.display = 'flex';
-                document.body.style.background = '#bdc3c7';
+        <div id="sidebar">
+            <h3>🏠 База знаний</h3>
+            <p style="font-size: 12px;">Отредактируйте и нажмите Сохранить:</p>
+            <textarea id="baseData">${personalBase}</textarea>
+            <button onclick="saveBase()" style="margin-top:5px; background:#2980b9">Сохранить базу</button>
+            <hr>
+            <button onclick="chatHistory=[]" style="background:#c0392b">Очистить память беседы</button>
+        </div>
+
+        <div id="main">
+            <div id="messages"></div>
+            <div class="input-area">
+                <input type="text" id="userInput" placeholder="Спросите о чем угодно...">
+                <button onclick="send()">Отправить</button>
+            </div>
+        </div>
+
+        <script>
+            let psw = '';
+            function login() {
+                psw = document.getElementById('pass').value;
+                document.getElementById('login-screen').style.display = 'none';
+            }
+
+            function saveBase() {
+                const text = document.getElementById('baseData').value;
+                fetch('/update_base', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password: psw, newBase: text })
+                }).then(() => alert('База обновлена!'));
             }
 
             async function send() {
-                const msgInp = document.getElementById('userMsg');
-                const msgBox = document.getElementById('messages');
-                const text = msgInp.value;
+                const inp = document.getElementById('userInput');
+                const box = document.getElementById('messages');
+                const text = inp.value;
                 if(!text) return;
 
-                msgBox.innerHTML += '<p class="user"><b>Вы:</b> ' + text + '</p>';
-                msgInp.value = '';
+                box.innerHTML += '<div class="msg user"><b>Вы:</b> ' + text + '</div>';
+                inp.value = '';
 
-                try {
-                    const res = await fetch('/ask', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text, password: savedPass })
-                    });
-                    const data = await res.json();
-                    msgBox.innerHTML += '<p class="bot"><b>ИИ:</b> ' + (data.reply || data.error) + '</p>';
-                } catch(e) {
-                    msgBox.innerHTML += '<p>Ошибка связи</p>';
-                }
-                msgBox.scrollTop = msgBox.scrollHeight;
+                const res = await fetch('/ask', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ message: text, password: psw })
+                });
+                const data = await res.json();
+                box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + (data.reply || data.error) + '</div>';
+                box.scrollTop = box.scrollHeight;
             }
         </script>
     </body>
@@ -94,75 +103,57 @@ app.get('/', (req, res) => {
   `);
 });
 
-// --- ЛОГИКА АГЕНТА С ИНСТРУМЕНТАМИ ---
-app.post('/ask', async (req, res) => {
-  const { message, password } = req.body;
-
-  if (password !== MY_PASSWORD) {
-    return res.status(401).json({ error: "Неверный пароль!" });
-  }
-
-  try {
-    // Даем четкую инструкцию ИИ, как использовать инструмент
-    const systemInstruction = `Ты ИИ-Агент. Если пользователь спрашивает про погоду или температуру в каком-то городе, ты ОБЯЗАН ответить строго в таком формате: TOOL:WEATHER(НазваниеГорода). Не придумывай погоду сам.`;
-
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`
-      },
-      body: JSON.stringify({
-        model: MODEL_NAME,
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: message }
-        ]
-      })
-    });
-    
-    const data = await response.json();
-    let botReply = data.choices[0].message.content;
-
-    console.log("Первичный ответ ИИ:", botReply);
-
-    // Проверяем, затребовал ли ИИ инструмент погоды
-    if (botReply.includes('TOOL:WEATHER')) {
-      const match = botReply.match(/TOOL:WEATHER\(([^)]+)\)/);
-      if (match) {
-        const city = match[1];
-        console.log(`Робот запросил погоду для города: ${city}`);
-        
-        // Запускаем инструмент (функцию Node.js)
-        const weatherInfo = await getWeather(city);
-        
-        // Делаем второй запрос к ИИ, передавая ему реальные данные с погодного сайта
-        const finalResponse = await fetch(`${BASE_URL}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${API_KEY}`
-          },
-          body: JSON.stringify({
-            model: MODEL_NAME,
-            messages: [
-              { role: 'user', content: message },
-              { role: 'assistant', content: botReply },
-              { role: 'system', content: `Инструмент вернул данные о погоде: ${weatherInfo}. Сформулируй теперь финальный ответ пользователю.` }
-            ]
-          })
-        });
-        
-        const finalData = await finalResponse.json();
-        botReply = finalData.choices[0].message.content;
-      }
+// --- ОБНОВЛЕНИЕ БАЗЫ ЗНАНИЙ ---
+app.post('/update_base', (req, res) => {
+    if (req.body.password === MY_PASSWORD) {
+        personalBase = req.body.newBase;
+        res.json({ status: 'ok' });
     }
+});
 
-    res.json({ reply: botReply });
+// --- ЛОГИКА АГЕНТА ---
+app.post('/ask', async (req, res) => {
+    const { message, password } = req.body;
+    if (password !== MY_PASSWORD) return res.status(401).json({ error: "Нет доступа" });
 
-  } catch (err) {
-    res.json({ error: "Ошибка на стороне агента: " + err.message });
-  }
+    // Формируем "контекст" для ИИ
+    const historyContext = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
+    
+    const systemPrompt = `Ты персональный помощник Олега. 
+    Твоя база знаний: ${personalBase}
+    
+    История последних сообщений:
+    ${historyContext}
+    
+    Используй эти данные, чтобы отвечать точно. Если чего-то нет в базе, отвечай на основе своих общих знаний.`;
+
+    try {
+        const response = await fetch(`${BASE_URL}/chat/completions`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${API_KEY}`
+            },
+            body: JSON.stringify({
+                model: MODEL_NAME,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: message }
+                ]
+            })
+        });
+        const data = await response.json();
+        const reply = data.choices[0].message.content;
+
+        // Сохраняем в память
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: reply });
+        if (chatHistory.length > 10) chatHistory.shift(); // Храним только последние 10 реплик
+
+        res.json({ reply });
+    } catch (err) {
+        res.json({ error: "Ошибка сервера" });
+    }
 });
 
 app.listen(process.env.PORT || 3000);
