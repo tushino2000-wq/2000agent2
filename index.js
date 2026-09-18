@@ -8,6 +8,9 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 
 async function runAgent(userMessage) {
+  // Логируем для диагностики (увидим в Logs на Render)
+  console.log(`Запрос к модели: ${MODEL_NAME}`);
+  
   const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -21,17 +24,24 @@ async function runAgent(userMessage) {
   });
 
   const data = await response.json();
-  // Если Polza вернет ошибку, мы увидим её в логах
-  if (data.error) return `Ошибка от Polza: ${data.error.message}`;
+  
+  if (data.error) {
+    console.error("Ошибка API:", data.error);
+    return `Ошибка от API: ${data.error.message || JSON.stringify(data.error)}`;
+  }
+  
   return data.choices[0].message.content;
 }
 
-app.get('/', (req, res) => res.send('Агент через Polza.ai готов! 🚀'));
+app.get('/', (req, res) => res.send('Агент готов к работе! ✅'));
 app.post('/ask', async (req, res) => {
   try {
     const reply = await runAgent(req.body.message);
     res.json({ reply });
-  } catch (err) { res.json({ error: 'Проверь настройки API в Render!' }); }
+  } catch (err) {
+    console.error("Системная ошибка:", err);
+    res.json({ error: 'Произошла ошибка в коде сервера.' });
+  }
 });
 
 app.listen(process.env.PORT || 3000);
