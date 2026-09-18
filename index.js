@@ -19,7 +19,7 @@ async function getWeather(city) {
   } catch (e) { return "недоступно"; }
 }
 
-// --- ИНТЕРФЕЙС С МИКРОФОНОМ ---
+// --- ИНТЕРФЕЙС С ПОДДЕРЖКОЙ КАРТИНКИ ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -27,7 +27,7 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Супер Агент</title>
+        <title>ИИ Агент 2000</title>
         <style>
             body { font-family: sans-serif; background: #2c3e50; margin: 0; display: flex; height: 100vh; }
             #sidebar { width: 250px; background: #34495e; color: white; padding: 15px; display: flex; flex-direction: column; }
@@ -35,111 +35,70 @@ app.get('/', (req, res) => {
             #login-screen { position: fixed; inset: 0; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 100; }
             .login-box { background: white; padding: 20px; border-radius: 10px; text-align: center; }
             #messages { flex: 1; overflow-y: auto; padding: 20px; }
-            .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; }
+            .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; line-height: 1.5; }
             .user { background: #0084ff; color: white; margin-left: auto; }
             .bot { background: white; border: 1px solid #ddd; }
-            textarea { width: 100%; height: 120px; margin-top: 10px; }
-            .input-area { padding: 20px; display: flex; gap: 10px; background: white; align-items: center; }
+            .bot img { max-width: 100%; border-radius: 5px; margin-top: 10px; border: 1px solid #ccc; }
+            textarea { width: 100%; height: 120px; margin-top: 10px; background: #2c3e50; color: white; border: 1px solid #555; padding: 5px; }
+            .input-area { padding: 20px; display: flex; gap: 10px; background: white; }
             input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 5px; }
-            button { padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
-            .mic-btn { background: #e67e22; padding: 12px; border-radius: 5px; border: none; color: white; cursor: pointer; }
+            button { padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
         </style>
     </head>
     <body>
         <div id="login-screen">
             <div class="login-box">
-                <h2>Вход в систему</h2>
-                <input type="password" id="pass" placeholder="Пароль" style="padding:10px; margin-bottom:10px;"><br>
+                <h2>Вход</h2>
+                <input type="password" id="pass" placeholder="Пароль"><br><br>
                 <button onclick="login()">Войти</button>
             </div>
         </div>
-
         <div id="sidebar">
             <h3>🏠 База знаний</h3>
             <textarea id="baseData">${personalBase}</textarea>
-            <button onclick="saveBase()" style="margin-top:5px; background:#2980b9">Сохранить изменения</button>
+            <button onclick="saveBase()" style="margin-top:5px; background:#2980b9">Сохранить</button>
             <hr style="width:100%; margin: 20px 0;">
-            <button onclick="chatHistory=[]" style="background:#c0392b">Очистить память</button>
+            <button onclick="location.reload()" style="background:#c0392b">Перезагрузить</button>
         </div>
-
         <div id="main">
             <div id="messages"></div>
             <div class="input-area">
-                <button class="mic-btn" id="micBtn" onclick="toggleVoice()">🎤</button>
-                <input type="text" id="userInput" placeholder="Напишите или надиктуйте вопрос..." onkeypress="if(event.key==='Enter') send()">
+                <button onclick="toggleVoice()" id="micBtn" style="background:#e67e22">🎤</button>
+                <input type="text" id="userInput" placeholder="Спроси или попроси нарисовать..." onkeypress="if(event.key==='Enter') send()">
                 <button onclick="send()">Отправить</button>
             </div>
         </div>
-
         <script>
             let psw = '';
             let recognition;
-            let isListening = false;
-
-            function login() {
-                psw = document.getElementById('pass').value;
-                document.getElementById('login-screen').style.display = 'none';
-            }
-
+            function login() { psw = document.getElementById('pass').value; document.getElementById('login-screen').style.display = 'none'; }
             function saveBase() {
-                const text = document.getElementById('baseData').value;
-                fetch('/update_base', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ password: psw, newBase: text })
-                }).then(() => alert('Данные сохранены!'));
+                fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: psw, newBase: document.getElementById('baseData').value }) }).then(() => alert('Сохранено'));
             }
-
-            // Настройка микрофона
-            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                const SpeechObj = window.SpeechRecognition || window.webkitSpeechRecognition;
-                recognition = new SpeechObj();
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
                 recognition.lang = 'ru-RU';
-                recognition.interimResults = false;
-
-                recognition.onresult = (event) => {
-                    const resultText = event.results[0][0].transcript;
-                    document.getElementById('userInput').value = resultText;
-                    toggleVoice(); // Выключаем микрофон после записи
-                };
-
-                recognition.onerror = () => toggleVoice();
-            } else {
-                document.getElementById('micBtn').style.display = 'none'; // Если браузер не поддерживает
+                recognition.onresult = (e) => { document.getElementById('userInput').value = e.results[0][0].transcript; recognition.stop(); document.getElementById('micBtn').style.background='#e67e22'; };
             }
-
-            function toggleVoice() {
-                const btn = document.getElementById('micBtn');
-                if (!isListening) {
-                    recognition.start();
-                    btn.style.background = '#c0392b';
-                    btn.innerText = '🛑';
-                    isListening = true;
-                } else {
-                    recognition.stop();
-                    btn.style.background = '#e67e22';
-                    btn.innerText = '🎤';
-                    isListening = false;
-                }
-            }
+            function toggleVoice() { document.getElementById('micBtn').style.background='#c0392b'; recognition.start(); }
 
             async function send() {
                 const inp = document.getElementById('userInput');
                 const box = document.getElementById('messages');
-                const text = inp.value;
-                if(!text) return;
-
+                const text = inp.value; if(!text) return;
                 box.innerHTML += '<div class="msg user"><b>Вы:</b> ' + text + '</div>';
                 inp.value = '';
-                box.scrollTop = box.scrollHeight;
-
-                const res = await fetch('/ask', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ message: text, password: psw })
-                });
+                const res = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: text, password: psw }) });
                 const data = await res.json();
-                box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + (data.reply || data.error) + '</div>';
+                
+                let botContent = data.reply;
+                // Если в ответе есть ссылка на картинку, превращаем её в тег img
+                if (botContent.includes('https://pollinations.ai/p/')) {
+                    const imgUrl = botContent.match(/https:\/\/pollinations.ai\/p\/[^\s]+/)[0];
+                    botContent = botContent.replace(imgUrl, '<br><img src="' + imgUrl + '" alt="ИИ Генерация">');
+                }
+
+                box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + botContent + '</div>';
                 box.scrollTop = box.scrollHeight;
             }
         </script>
@@ -149,25 +108,18 @@ app.get('/', (req, res) => {
 });
 
 app.post('/update_base', (req, res) => {
-    if (req.body.password === MY_PASSWORD) {
-        personalBase = req.body.newBase;
-        res.json({ status: 'ok' });
-    }
+    if (req.body.password === MY_PASSWORD) { personalBase = req.body.newBase; res.json({ status: 'ok' }); }
 });
 
-// --- УМНАЯ ЛОГИКА С ПАМЯТЬЮ И ИНСТРУМЕНТАМИ ---
 app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.status(401).json({ error: "Нет доступа" });
 
-    const historyContext = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
-    
-    const systemPrompt = `Ты персональный робот Олега. 
-    Твоя база знаний: ${personalBase}
-    История беседы:
-    ${historyContext}
-    
-    ПРАВИЛО ДЛЯ ПОГОДЫ: Если спрашивают погоду/температуру города, ответь строго: TOOL:WEATHER(Город). Не придумывай сам.`;
+    const history = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
+    const systemPrompt = `Ты агент Олега. База: ${personalBase}. Память: ${history}. 
+    ПРАВИЛА: 
+    1. Погода: ответь TOOL:WEATHER(Город). 
+    2. Рисование: Если просят нарисовать, создай ссылку: https://pollinations.ai/p/[описание_на_английском]?width=512&height=512&seed=[случайное_число]`;
 
     try {
         let response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -178,36 +130,24 @@ app.post('/ask', async (req, res) => {
         let data = await response.json();
         let reply = data.choices[0].message.content;
 
-        // Если ИИ запросил погоду
         if (reply.includes('TOOL:WEATHER')) {
             const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
             if (match) {
-                const weatherData = await getWeather(match[1]);
-                // Повторный запрос с данными
-                const finalRes = await fetch(`${BASE_URL}/chat/completions`, {
+                const weather = await getWeather(match[1]);
+                const final = await fetch(`${BASE_URL}/chat/completions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-                    body: JSON.stringify({
-                        model: MODEL_NAME,
-                        messages: [
-                            { role: 'user', content: message },
-                            { role: 'assistant', content: reply },
-                            { role: 'system', content: `Результат интернета: Погода в городе ${match[1]} сейчас: ${weatherData}. Ответь пользователю.` }
-                        ]
-                    })
+                    body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'user', content: message }, { role: 'system', content: `Погода: ${weather}. Ответь кратко.` }] })
                 });
-                const finalData = await finalRes.json();
+                const finalData = await final.json();
                 reply = finalData.choices[0].message.content;
             }
         }
 
-        // Пишем в память
-        chatHistory.push({ role: 'user', content: message });
-        chatHistory.push({ role: 'assistant', content: reply });
+        chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
         if (chatHistory.length > 10) chatHistory.shift();
-
         res.json({ reply });
-    } catch (err) { res.json({ error: "Ошибка сети" }); }
+    } catch (err) { res.json({ error: "Ошибка" }); }
 });
 
 app.listen(process.env.PORT || 3000);
