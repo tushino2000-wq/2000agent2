@@ -1,50 +1,37 @@
 const express = require('express');
 const fetch = require('node-fetch');
-
 const app = express();
 app.use(express.json());
 
 const API_KEY = process.env.API_KEY;
-
-const tools = {
-  getCurrentTime: () => new Date().toLocaleString('ru-RU'),
-  calculate: (exp) => { try { return eval(exp).toString(); } catch(e) { return 'Ошибка'; } }
-};
+const BASE_URL = process.env.BASE_URL;
+const MODEL_NAME = process.env.MODEL_NAME;
 
 async function runAgent(userMessage) {
-  // Упрощенный запрос к Gemini
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
-  
-  const prompt = `Ты ИИ-агент. Если тебя просят посчитать, ответь строго в формате TOOL: calculate(выражение). 
-  Если спрашивают время, ответь строго TOOL: getCurrentTime(). 
-  Задача: ${userMessage}`;
-
-  const response = await fetch(url, {
+  const response = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`
+    },
+    body: JSON.stringify({
+      model: MODEL_NAME,
+      messages: [{ role: 'user', content: userMessage }]
+    })
   });
 
   const data = await response.json();
-  let agentReply = data.candidates[0].content.parts[0].text;
-
-  // Проверка инструментов
-  if (agentReply.includes('TOOL:')) {
-    if (agentReply.includes('getCurrentTime')) return `Сейчас: ${tools.getCurrentTime()}`;
-    if (agentReply.includes('calculate')) {
-      const match = agentReply.match(/calculate\(([^)]+)\)/);
-      return match ? `Результат: ${tools.calculate(match[1])}` : agentReply;
-    }
-  }
-  return agentReply;
+  // Если Polza вернет ошибку, мы увидим её в логах
+  if (data.error) return `Ошибка от Polza: ${data.error.message}`;
+  return data.choices[0].message.content;
 }
 
-app.get('/', (req, res) => res.send('Агент на Gemini готов! 🚀'));
+app.get('/', (req, res) => res.send('Агент через Polza.ai готов! 🚀'));
 app.post('/ask', async (req, res) => {
   try {
     const reply = await runAgent(req.body.message);
     res.json({ reply });
-  } catch (err) { res.json({ error: 'Ошибка Gemini. Проверь ключ!' }); }
+  } catch (err) { res.json({ error: 'Проверь настройки API в Render!' }); }
 });
 
 app.listen(process.env.PORT || 3000);
