@@ -8,11 +8,18 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const MY_PASSWORD = process.env.MY_PASSWORD;
 
-// --- ПЕРЕМЕННЫЕ ДЛЯ ПАМЯТИ ---
-let chatHistory = []; // Тут храним последние 10 сообщений
-let personalBase = "Машина: Hyundai Solaris (щетки 650/400). Диета: Стол №5. Кот любит кролика."; // База знаний
+let chatHistory = []; 
+let personalBase = "Машина: Hyundai Solaris. Диета: Стол №5. Кот любит кролика."; 
 
-// --- ИНТЕРФЕЙС ---
+// Функция погоды
+async function getWeather(city) {
+  try {
+    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
+    return await res.text();
+  } catch (e) { return "недоступно"; }
+}
+
+// --- ИНТЕРФЕЙС С МИКРОФОНОМ ---
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
@@ -20,51 +27,55 @@ app.get('/', (req, res) => {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>ИИ Агент с Памятью</title>
+        <title>Супер Агент</title>
         <style>
             body { font-family: sans-serif; background: #2c3e50; margin: 0; display: flex; height: 100vh; }
             #sidebar { width: 250px; background: #34495e; color: white; padding: 15px; display: flex; flex-direction: column; }
             #main { flex: 1; display: flex; flex-direction: column; background: #f0f2f5; }
             #login-screen { position: fixed; inset: 0; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 100; }
-            .login-box { background: white; padding: 20px; border-radius: 10px; color: black; text-align: center; }
+            .login-box { background: white; padding: 20px; border-radius: 10px; text-align: center; }
             #messages { flex: 1; overflow-y: auto; padding: 20px; }
             .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 80%; }
             .user { background: #0084ff; color: white; margin-left: auto; }
             .bot { background: white; border: 1px solid #ddd; }
-            textarea { width: 100%; height: 100px; margin-top: 10px; }
-            .input-area { padding: 20px; display: flex; gap: 10px; background: white; }
-            input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ddd; }
-            button { padding: 10px 20px; background: #27ae60; color: white; border: none; cursor: pointer; }
+            textarea { width: 100%; height: 120px; margin-top: 10px; }
+            .input-area { padding: 20px; display: flex; gap: 10px; background: white; align-items: center; }
+            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 5px; }
+            button { padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+            .mic-btn { background: #e67e22; padding: 12px; border-radius: 5px; border: none; color: white; cursor: pointer; }
         </style>
     </head>
     <body>
         <div id="login-screen">
             <div class="login-box">
-                <h2>Доступ закрыт</h2>
-                <input type="password" id="pass" placeholder="Пароль">
+                <h2>Вход в систему</h2>
+                <input type="password" id="pass" placeholder="Пароль" style="padding:10px; margin-bottom:10px;"><br>
                 <button onclick="login()">Войти</button>
             </div>
         </div>
 
         <div id="sidebar">
             <h3>🏠 База знаний</h3>
-            <p style="font-size: 12px;">Отредактируйте и нажмите Сохранить:</p>
             <textarea id="baseData">${personalBase}</textarea>
-            <button onclick="saveBase()" style="margin-top:5px; background:#2980b9">Сохранить базу</button>
-            <hr>
-            <button onclick="chatHistory=[]" style="background:#c0392b">Очистить память беседы</button>
+            <button onclick="saveBase()" style="margin-top:5px; background:#2980b9">Сохранить изменения</button>
+            <hr style="width:100%; margin: 20px 0;">
+            <button onclick="chatHistory=[]" style="background:#c0392b">Очистить память</button>
         </div>
 
         <div id="main">
             <div id="messages"></div>
             <div class="input-area">
-                <input type="text" id="userInput" placeholder="Спросите о чем угодно...">
+                <button class="mic-btn" id="micBtn" onclick="toggleVoice()">🎤</button>
+                <input type="text" id="userInput" placeholder="Напишите или надиктуйте вопрос..." onkeypress="if(event.key==='Enter') send()">
                 <button onclick="send()">Отправить</button>
             </div>
         </div>
 
         <script>
             let psw = '';
+            let recognition;
+            let isListening = false;
+
             function login() {
                 psw = document.getElementById('pass').value;
                 document.getElementById('login-screen').style.display = 'none';
@@ -76,7 +87,40 @@ app.get('/', (req, res) => {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ password: psw, newBase: text })
-                }).then(() => alert('База обновлена!'));
+                }).then(() => alert('Данные сохранены!'));
+            }
+
+            // Настройка микрофона
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechObj = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechObj();
+                recognition.lang = 'ru-RU';
+                recognition.interimResults = false;
+
+                recognition.onresult = (event) => {
+                    const resultText = event.results[0][0].transcript;
+                    document.getElementById('userInput').value = resultText;
+                    toggleVoice(); // Выключаем микрофон после записи
+                };
+
+                recognition.onerror = () => toggleVoice();
+            } else {
+                document.getElementById('micBtn').style.display = 'none'; // Если браузер не поддерживает
+            }
+
+            function toggleVoice() {
+                const btn = document.getElementById('micBtn');
+                if (!isListening) {
+                    recognition.start();
+                    btn.style.background = '#c0392b';
+                    btn.innerText = '🛑';
+                    isListening = true;
+                } else {
+                    recognition.stop();
+                    btn.style.background = '#e67e22';
+                    btn.innerText = '🎤';
+                    isListening = false;
+                }
             }
 
             async function send() {
@@ -87,6 +131,7 @@ app.get('/', (req, res) => {
 
                 box.innerHTML += '<div class="msg user"><b>Вы:</b> ' + text + '</div>';
                 inp.value = '';
+                box.scrollTop = box.scrollHeight;
 
                 const res = await fetch('/ask', {
                     method: 'POST',
@@ -103,7 +148,6 @@ app.get('/', (req, res) => {
   `);
 });
 
-// --- ОБНОВЛЕНИЕ БАЗЫ ЗНАНИЙ ---
 app.post('/update_base', (req, res) => {
     if (req.body.password === MY_PASSWORD) {
         personalBase = req.body.newBase;
@@ -111,49 +155,59 @@ app.post('/update_base', (req, res) => {
     }
 });
 
-// --- ЛОГИКА АГЕНТА ---
+// --- УМНАЯ ЛОГИКА С ПАМЯТЬЮ И ИНСТРУМЕНТАМИ ---
 app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.status(401).json({ error: "Нет доступа" });
 
-    // Формируем "контекст" для ИИ
     const historyContext = chatHistory.map(m => `${m.role}: ${m.content}`).join('\n');
     
-    const systemPrompt = `Ты персональный помощник Олега. 
+    const systemPrompt = `Ты персональный робот Олега. 
     Твоя база знаний: ${personalBase}
-    
-    История последних сообщений:
+    История беседы:
     ${historyContext}
     
-    Используй эти данные, чтобы отвечать точно. Если чего-то нет в базе, отвечай на основе своих общих знаний.`;
+    ПРАВИЛО ДЛЯ ПОГОДЫ: Если спрашивают погоду/температуру города, ответь строго: TOOL:WEATHER(Город). Не придумывай сам.`;
 
     try {
-        const response = await fetch(`${BASE_URL}/chat/completions`, {
+        let response = await fetch(`${BASE_URL}/chat/completions`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${API_KEY}`
-            },
-            body: JSON.stringify({
-                model: MODEL_NAME,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: message }
-                ]
-            })
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+            body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: message }] })
         });
-        const data = await response.json();
-        const reply = data.choices[0].message.content;
+        let data = await response.json();
+        let reply = data.choices[0].message.content;
 
-        // Сохраняем в память
+        // Если ИИ запросил погоду
+        if (reply.includes('TOOL:WEATHER')) {
+            const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
+            if (match) {
+                const weatherData = await getWeather(match[1]);
+                // Повторный запрос с данными
+                const finalRes = await fetch(`${BASE_URL}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+                    body: JSON.stringify({
+                        model: MODEL_NAME,
+                        messages: [
+                            { role: 'user', content: message },
+                            { role: 'assistant', content: reply },
+                            { role: 'system', content: `Результат интернета: Погода в городе ${match[1]} сейчас: ${weatherData}. Ответь пользователю.` }
+                        ]
+                    })
+                });
+                const finalData = await finalRes.json();
+                reply = finalData.choices[0].message.content;
+            }
+        }
+
+        // Пишем в память
         chatHistory.push({ role: 'user', content: message });
         chatHistory.push({ role: 'assistant', content: reply });
-        if (chatHistory.length > 10) chatHistory.shift(); // Храним только последние 10 реплик
+        if (chatHistory.length > 10) chatHistory.shift();
 
         res.json({ reply });
-    } catch (err) {
-        res.json({ error: "Ошибка сервера" });
-    }
+    } catch (err) { res.json({ error: "Ошибка сети" }); }
 });
 
 app.listen(process.env.PORT || 3000);
