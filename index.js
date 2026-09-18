@@ -31,23 +31,23 @@ app.get('/', (req, res) => {
             #sidebar { width: 250px; background: #34495e; color: white; padding: 15px; display: flex; flex-direction: column; }
             #main { flex: 1; display: flex; flex-direction: column; background: #f0f2f5; }
             #login-screen { position: fixed; inset: 0; background: #2c3e50; display: flex; justify-content: center; align-items: center; z-index: 100; }
-            .login-box { background: white; padding: 20px; border-radius: 10px; text-align: center; }
+            .login-box { background: white; padding: 20px; border-radius: 10px; text-align: center; color: black; }
             #messages { flex: 1; overflow-y: auto; padding: 20px; }
             .msg { margin-bottom: 10px; padding: 10px; border-radius: 10px; max-width: 85%; line-height: 1.5; word-wrap: break-word; }
-            .user { background: #0084ff; color: white; margin-left: auto; }
-            .bot { background: white; border: 1px solid #ddd; position: relative; }
-            .bot img { max-width: 100%; border-radius: 8px; margin-top: 10px; display: block; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
-            textarea { width: 100%; height: 120px; margin-top: 10px; background: #2c3e50; color: white; border: 1px solid #555; padding: 5px; }
+            .user { background: #0084ff; color: white; margin-left: auto; text-align: right; }
+            .bot { background: white; border: 1px solid #ddd; text-align: left; }
+            .bot img { max-width: 100%; border-radius: 8px; margin-top: 10px; display: block; }
+            textarea { width: 100%; height: 120px; margin-top: 10px; background: #2c3e50; color: white; border: 1px solid #555; }
             .input-area { padding: 15px; display: flex; gap: 10px; background: white; }
-            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 5px; }
+            input[type="text"], input[type="password"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 5px; }
             button { padding: 12px 20px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
         </style>
     </head>
     <body>
         <div id="login-screen">
             <div class="login-box">
-                <h2>Вход</h2>
-                <input type="password" id="pass" placeholder="Пароль"><br><br>
+                <h2>Вход в систему</h2>
+                <input type="password" id="pass" placeholder="Пароль">
                 <button onclick="login()">Войти</button>
             </div>
         </div>
@@ -61,52 +61,43 @@ app.get('/', (req, res) => {
         <div id="main">
             <div id="messages"></div>
             <div class="input-area">
-                <button onclick="toggleVoice()" id="micBtn" style="background:#e67e22">🎤</button>
                 <input type="text" id="userInput" placeholder="Спроси или попроси нарисовать..." onkeypress="if(event.key==='Enter') send()">
-                <button onclick="send()" id="sendBtn">Отправить</button>
+                <button onclick="send()">Отправить</button>
             </div>
         </div>
         <script>
             let psw = '';
-            let recognition;
-            function login() { psw = document.getElementById('pass').value; document.getElementById('login-screen').style.display = 'none'; }
+            function login() { 
+                psw = document.getElementById('pass').value; 
+                document.getElementById('login-screen').style.display = 'none'; 
+            }
             function saveBase() {
-                fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: psw, newBase: document.getElementById('baseData').value }) }).then(() => alert('Сохранено'));
+                fetch('/update_base', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ password: psw, newBase: document.getElementById('baseData').value }) 
+                }).then(() => alert('Данные сохранены!'));
             }
-            if ('webkitSpeechRecognition' in window) {
-                recognition = new webkitSpeechRecognition();
-                recognition.lang = 'ru-RU';
-                recognition.onresult = (e) => { document.getElementById('userInput').value = e.results[0][0].transcript; recognition.stop(); document.getElementById('micBtn').style.background='#e67e22'; };
-            }
-            function toggleVoice() { document.getElementById('micBtn').style.background='#c0392b'; recognition.start(); }
-
             async function send() {
                 const inp = document.getElementById('userInput');
                 const box = document.getElementById('messages');
-                const btn = document.getElementById('sendBtn');
                 const text = inp.value; if(!text) return;
-
                 box.innerHTML += '<div class="msg user"><b>Вы:</b> ' + text + '</div>';
                 inp.value = '';
-                btn.disabled = true;
-
-                const res = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: text, password: psw }) });
+                const res = await fetch('/ask', { 
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ message: text, password: psw }) 
+                });
                 const data = await res.json();
+                let botReply = data.reply || "Ошибка API";
                 
-                let botReply = data.reply || "Ошибка сервера";
-
-                // УЛУЧШЕННЫЙ ПОИСК КАРТИНКИ В ТЕКСТЕ
-                const urlRegex = /(https?:\/\/pollinations\.ai\/p\/[^\s\)\?]+(\?[^\s\)\\]+)?)/gi;
-                const foundUrl = botReply.match(urlRegex);
-                
-                if (foundUrl) {
-                    const imgUrl = foundUrl[0].replace(/\)$/, ''); // Убираем скобку, если ИИ её добавил
-                    botReply = botReply.replace(urlRegex, '') + '<br><img src="' + imgUrl + '" onload="window.scrollTo(0,document.body.scrollHeight)">';
-                }
+                // Простая логика картинки
+                const urlRegex = /(https:\/\/pollinations\.ai\/p\/[^\s\)]+)/gi;
+                botReply = botReply.replace(urlRegex, (url) => '<img src="' + url + '">');
 
                 box.innerHTML += '<div class="msg bot"><b>ИИ:</b> ' + botReply + '</div>';
                 box.scrollTop = box.scrollHeight;
-                btn.disabled = false;
             }
         </script>
     </body>
@@ -121,16 +112,10 @@ app.post('/update_base', (req, res) => {
 app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.status(401).json({ error: "Нет доступа" });
-
     const history = chatHistory.slice(-5).map(m => `${m.role}: ${m.content}`).join('\n');
-    const systemPrompt = `Ты агент Олега. 
-    Твоя база знаний: ${personalBase}. 
-    Последние сообщения: ${history}. 
-    ИНСТРУКЦИИ: 
-    1. Погода: Если спрашивают погоду, ответь TOOL:WEATHER(Город). 
-    2. Рисование: Если просят нарисовать, напиши описание на английском в этой ссылке: https://pollinations.ai/p/[description]?width=1024&height=1024&seed=[random] 
-    Никогда не используй Markdown разметку для ссылок на фото, пиши просто ссылку.`;
-
+    const systemPrompt = `Ты агент Олега. База: ${personalBase}. История: ${history}. 
+    1. Погода: TOOL:WEATHER(Город). 
+    2. Рисование: Если просят нарисовать, напиши ТОЛЬКО прямую ссылку: https://pollinations.ai/p/[prompt_на_английском]?width=1024&height=1024&seed=[случайное_число]`;
     try {
         let response = await fetch(`${BASE_URL}/chat/completions`, {
             method: 'POST',
@@ -139,24 +124,15 @@ app.post('/ask', async (req, res) => {
         });
         let data = await response.json();
         let reply = data.choices[0].message.content;
-
         if (reply.includes('TOOL:WEATHER')) {
             const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
             if (match) {
                 const weather = await getWeather(match[1]);
-                const final = await fetch(`${BASE_URL}/chat/completions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-                    body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'user', content: message }, { role: 'system', content: `Реальная погода: ${weather}. Ответь кратко.` }] })
-                });
-                const finalData = await final.json();
-                reply = finalData.choices[0].message.content;
+                reply = "В городе " + match[1] + " сейчас: " + weather;
             }
         }
-
         chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
         res.json({ reply });
     } catch (err) { res.json({ error: "Ошибка сети" }); }
 });
-
 app.listen(process.env.PORT || 3000);
