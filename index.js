@@ -15,7 +15,7 @@ async function runAgent(userMessage) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY.trim()}`
+        'Authorization': `Bearer ${API_KEY}
       },
       body: JSON.stringify({
         model: MODEL_NAME,
