@@ -3,57 +3,47 @@ const fetch = require('node-fetch');
 const app = express();
 app.use(express.json());
 
-const API_KEY = process.env.API_KEY;
-const BASE_URL = process.env.BASE_URL;
-const MODEL_NAME = process.env.MODEL_NAME;
-
-async function runAgent(userMessage) {
-  console.log(`>>> Отправляю запрос к: ${MODEL_NAME} по адресу: ${BASE_URL}`);
-
+app.post('/ask', async (req, res) => {
   try {
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
+    const { message } = req.body;
+    
+    // Берем данные прямо из системы
+    const key = process.env.API_KEY;
+    const url = process.env.BASE_URL;
+    const model = process.env.MODEL_NAME;
+
+    console.log(`>>> Проверка: URL=${url}, Model=${model}, Key присутствует=${!!key}`);
+
+    if (!key) {
+      return res.json({ error: "Ключ API_KEY не найден в настройках Render!" });
+    }
+
+    const response = await fetch(`${url}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}
+        'Authorization': `Bearer ${key}`
       },
       body: JSON.stringify({
-        model: MODEL_NAME,
-        messages: [{ role: 'user', content: userMessage }]
+        model: model,
+        messages: [{ role: 'user', content: message }]
       })
     });
 
     const data = await response.json();
+    console.log(">>> Ответ от API:", JSON.stringify(data));
     
-    // Если в ответе есть ошибка от Polza - выводим её в консоль Render
     if (data.error) {
-      console.log("!!! Ошибка от API Polza:", JSON.stringify(data.error));
-      return `Ошибка от Polza: ${data.error.message || JSON.stringify(data.error)}`;
-    }
-
-    if (data.choices && data.choices[0]) {
-      return data.choices[0].message.content;
+      res.json({ reply: `Ошибка от Polza: ${data.error.message || JSON.stringify(data.error)}` });
     } else {
-      console.log("??? Неожиданный ответ API:", JSON.stringify(data));
-      return "API прислал странный ответ без текста.";
+      res.json({ reply: data.choices[0].message.content });
     }
 
-  } catch (error) {
-    console.log("!!! Критическая ошибка в runAgent:", error.message);
-    throw error;
-  }
-}
-
-app.get('/', (req, res) => res.send('Диагностика включена! Жду curl запрос. 🚀'));
-
-app.post('/ask', async (req, res) => {
-  try {
-    const reply = await runAgent(req.body.message);
-    res.json({ reply });
   } catch (err) {
-    console.log("!!! Ошибка в роуте /ask:", err.message);
-    res.json({ error: 'Системная ошибка. Смотри логи Render!' });
+    console.log("!!! Ошибка:", err.message);
+    res.json({ error: err.message });
   }
 });
 
+app.get('/', (req, res) => res.send('Сервер активен! Жду запрос. 🚀'));
 app.listen(process.env.PORT || 3000);
