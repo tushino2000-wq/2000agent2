@@ -8,9 +8,44 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const MY_PASSWORD = process.env.MY_PASSWORD;
 
-let personalBase = "Имя: Олег. Москва. Solaris. Стол №5."; 
+let personalBase = "Олег. Москва. Solaris. Стол №5."; 
 
-// Инструмент 1: Погода
+// Исправленный инструмент времени: только 24-часовой формат и четкий статус суток
+function getTimeDetailed(city) {
+    const zones = {
+        "токио": "Asia/Tokyo", "лондон": "Europe/London", "нью-йорк": "America/New_York",
+        "берлин": "Europe/Berlin", "париж": "Europe/Paris", "пекин": "Asia/Shanghai",
+        "дубай": "Asia/Dubai", "минск": "Europe/Minsk", "стамбул": "Europe/Istanbul",
+        "москва": "Europe/Moscow"
+    };
+    const zone = zones[city.toLowerCase()] || "UTC";
+    
+    try {
+        const now = new Date();
+        // Жестко задаем 24-часовой формат (hour12: false)
+        const timeStr = now.toLocaleString("ru-RU", { 
+            timeZone: zone, 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            hour12: false,
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long'
+        });
+
+        // Берем час отдельно для определения времени суток
+        const hour = parseInt(now.toLocaleString("en-GB", { timeZone: zone, hour: '2-digit', hour12: false }));
+        
+        let period = "";
+        if (hour >= 0 && hour < 6) period = "ГЛУБОКАЯ НОЧЬ";
+        else if (hour >= 6 && hour < 12) period = "УТРО";
+        else if (hour >= 12 && hour < 18) period = "ДЕНЬ";
+        else if (hour >= 18 && hour < 24) period = "ВЕЧЕР";
+        
+        return `${timeStr} (Статус: ${period}, формат 24ч)`;
+    } catch (e) { return "ошибка времени"; }
+}
+
 async function getWeather(city) {
   try {
     const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
@@ -18,41 +53,31 @@ async function getWeather(city) {
   } catch (e) { return "недоступно"; }
 }
 
-// Инструмент 2: Точное мировое время
-function getTimeInCity(city) {
-    try {
-        // Карта часовых поясов для основных направлений
-        const zones = {
-            "токио": "Asia/Tokyo", "лондон": "Europe/London", "нью-йорк": "America/New_York",
-            "берлин": "Europe/Berlin", "париж": "Europe/Paris", "пекин": "Asia/Shanghai",
-            "дубай": "Asia/Dubai", "минск": "Europe/Minsk", "стамбул": "Europe/Istanbul"
-        };
-        const zone = zones[city.toLowerCase()] || "UTC";
-        return new Date().toLocaleString("ru-RU", { timeZone: zone, hour: '2-digit', minute: '2-digit' });
-    } catch (e) { return "не удалось вычислить время"; }
-}
-
-app.get('/', (req, res) => res.send(`<h2>🔐 Защищено</h2>`));
+app.get('/', (req, res) => res.send(`<h2>🔐 Вход защищен</h2>`));
 
 app.get('/chat', (req, res) => {
   const userPass = req.query.pass;
   if (userPass !== MY_PASSWORD) return res.send("ДОСТУП ЗАПРЕЩЕН!");
   res.send(`
-    <html><head><meta charset="UTF-8"><title>Агент 2000</title>
+    <html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Агент 2000</title>
     <style>
         body { font-family: sans-serif; background: #f0f2f5; padding: 15px; }
-        #box { height: 450px; border: 1px solid #ccc; overflow-y: auto; background: white; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
-        .msg { margin-bottom: 10px; padding: 10px; border-radius: 8px; max-width: 85%; }
+        #box { height: 480px; border: 1px solid #ccc; overflow-y: auto; background: white; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+        .msg { margin-bottom: 12px; padding: 10px; border-radius: 10px; max-width: 85%; }
         .u { background: #0084ff; color: white; margin-left: auto; text-align: right; }
-        .b { background: #e4e6eb; color: black; }
-        input { width: 70%; padding: 12px; border-radius: 5px; border: 1px solid #ccc; }
-        button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        .b { background: #fff; border: 1px solid #ddd; }
+        input { width: 70%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; }
+        button { padding: 12px 20px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; }
     </style></head>
     <body>
-        <h3>🕵️‍♂️ Умный Агент Олега</h3>
-        <div id="box"></div>
-        <input type="text" id="inp" placeholder="Время в Токио? Погода в Минске?" onkeypress="if(event.key==='Enter') send()">
-        <button onclick="send()">ОТПРАВИТЬ</button>
+        <div style="max-width: 700px; margin: auto;">
+            <h3>🤖 Агент Олега (Версия 2.0)</h3>
+            <div id="box"></div>
+            <div style="display:flex; gap:10px;">
+                <input type="text" id="inp" placeholder="Время в Токио?" onkeypress="if(event.key==='Enter') send()">
+                <button onclick="send()">Отправить</button>
+            </div>
+        </div>
         <script>
             const box = document.getElementById('box');
             async function send() {
@@ -78,12 +103,11 @@ app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.json({ reply: "Ошибка пароля" });
 
-    const moscowTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
-
-    const systemPrompt = `Ты агент Олега. База: ${personalBase}. 
-    Сейчас в Москве: ${moscowTime}.
-    Если спрашивают погоду, пиши: TOOL:WEATHER(Город).
-    Если спрашивают время в другом городе, пиши: TOOL:TIME(Город).`;
+    const moscowInfo = getTimeDetailed("москва");
+    const systemPrompt = `Ты персональный помощник Олега. База: ${personalBase}.
+    ТЕКУЩЕЕ ВРЕМЯ В МОСКВЕ (для ориентира): ${moscowInfo}.
+    Если пользователь спрашивает время в другом городе, ТЫ ОБЯЗАН использовать инструмент TOOL:TIME(Город). 
+    Отвечай вежливо, учитывая время суток (день, ночь, утро или вечер).`;
 
     try {
         let response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -97,16 +121,14 @@ app.post('/ask', async (req, res) => {
         let data = await response.json();
         let reply = data.choices[0].message.content;
 
-        // Обработка ПОГОДЫ
-        if (reply.includes('TOOL:WEATHER')) {
-            const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
-            if (match) reply = "Погода в " + match[1] + ": " + await getWeather(match[1]);
-        }
-
-        // Обработка ВРЕМЕНИ
         if (reply.includes('TOOL:TIME')) {
             const match = reply.match(/TOOL:TIME\(([^)]+)\)/);
-            if (match) reply = "Время в " + match[1] + " сейчас: " + getTimeInCity(match[1]);
+            if (match) reply = "Информация по г. " + match[1] + ": " + getTimeDetailed(match[1]);
+        }
+        
+        if (reply.includes('TOOL:WEATHER')) {
+            const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
+            if (match) reply = "Погода: " + await getWeather(match[1]);
         }
         
         res.json({ reply });
