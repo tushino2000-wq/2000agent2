@@ -8,8 +8,9 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const MY_PASSWORD = process.env.MY_PASSWORD;
 
-let personalBase = "Имя хозяина: Олег. Живет в Москве. Машина: Hyundai Solaris. Диета: Стол №5. Кот: любит сушеного кролика."; 
+let personalBase = "Имя: Олег. Москва. Solaris. Стол №5."; 
 
+// Инструмент 1: Погода
 async function getWeather(city) {
   try {
     const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
@@ -17,14 +18,27 @@ async function getWeather(city) {
   } catch (e) { return "недоступно"; }
 }
 
-app.get('/', (req, res) => res.send(`<h2>🔐 Вход защищен</h2>`));
+// Инструмент 2: Точное мировое время
+function getTimeInCity(city) {
+    try {
+        // Карта часовых поясов для основных направлений
+        const zones = {
+            "токио": "Asia/Tokyo", "лондон": "Europe/London", "нью-йорк": "America/New_York",
+            "берлин": "Europe/Berlin", "париж": "Europe/Paris", "пекин": "Asia/Shanghai",
+            "дубай": "Asia/Dubai", "минск": "Europe/Minsk", "стамбул": "Europe/Istanbul"
+        };
+        const zone = zones[city.toLowerCase()] || "UTC";
+        return new Date().toLocaleString("ru-RU", { timeZone: zone, hour: '2-digit', minute: '2-digit' });
+    } catch (e) { return "не удалось вычислить время"; }
+}
+
+app.get('/', (req, res) => res.send(`<h2>🔐 Защищено</h2>`));
 
 app.get('/chat', (req, res) => {
   const userPass = req.query.pass;
   if (userPass !== MY_PASSWORD) return res.send("ДОСТУП ЗАПРЕЩЕН!");
   res.send(`
-    <html>
-    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Агент 2000</title>
+    <html><head><meta charset="UTF-8"><title>Агент 2000</title>
     <style>
         body { font-family: sans-serif; background: #f0f2f5; padding: 15px; }
         #box { height: 450px; border: 1px solid #ccc; overflow-y: auto; background: white; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
@@ -35,9 +49,9 @@ app.get('/chat', (req, res) => {
         button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 5px; cursor: pointer; }
     </style></head>
     <body>
-        <h3>🕵️‍♂️ Супер Агент Олега</h3>
+        <h3>🕵️‍♂️ Умный Агент Олега</h3>
         <div id="box"></div>
-        <input type="text" id="inp" placeholder="Спроси о времени в Токио или о диете..." onkeypress="if(event.key==='Enter') send()">
+        <input type="text" id="inp" placeholder="Время в Токио? Погода в Минске?" onkeypress="if(event.key==='Enter') send()">
         <button onclick="send()">ОТПРАВИТЬ</button>
         <script>
             const box = document.getElementById('box');
@@ -64,15 +78,12 @@ app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.json({ reply: "Ошибка пароля" });
 
-    // Улучшенный промпт: теперь ИИ знает время сервера и может вычислять другие пояса
-    const now = new Date();
-    const serverTime = now.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+    const moscowTime = new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" });
 
-    const systemPrompt = `Ты персональный агент Олега. 
-    Твоя база знаний: ${personalBase}. 
-    Текущее время в Москве: ${serverTime}.
-    Если тебя спрашивают время в другом городе, вычисли его, зная, что в Москве сейчас ${serverTime} (UTC+3).
-    Если спрашивают погоду, ответь строго: TOOL:WEATHER(Город).`;
+    const systemPrompt = `Ты агент Олега. База: ${personalBase}. 
+    Сейчас в Москве: ${moscowTime}.
+    Если спрашивают погоду, пиши: TOOL:WEATHER(Город).
+    Если спрашивают время в другом городе, пиши: TOOL:TIME(Город).`;
 
     try {
         let response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -86,13 +97,18 @@ app.post('/ask', async (req, res) => {
         let data = await response.json();
         let reply = data.choices[0].message.content;
 
+        // Обработка ПОГОДЫ
         if (reply.includes('TOOL:WEATHER')) {
             const match = reply.match(/TOOL:WEATHER\(([^)]+)\)/);
-            if (match) {
-                const w = await getWeather(match[1]);
-                reply = "Погода в г. " + match[1] + ": " + w;
-            }
+            if (match) reply = "Погода в " + match[1] + ": " + await getWeather(match[1]);
         }
+
+        // Обработка ВРЕМЕНИ
+        if (reply.includes('TOOL:TIME')) {
+            const match = reply.match(/TOOL:TIME\(([^)]+)\)/);
+            if (match) reply = "Время в " + match[1] + " сейчас: " + getTimeInCity(match[1]);
+        }
+        
         res.json({ reply });
     } catch (e) { res.json({ reply: "Ошибка связи" }); }
 });
