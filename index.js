@@ -11,19 +11,15 @@ const MY_PASSWORD = process.env.MY_PASSWORD;
 let personalBase = "Имя: Олег. Москва. Solaris. Стол №5. Кот любит кролика.";
 let chatHistory = []; 
 
-// Умный инструмент времени: ищет совпадения по частям слов
 function getTimeDetailed(city) {
     const cityName = city.toLowerCase();
-    let zone = "Europe/Moscow"; // по умолчанию Москва
-
-    // Гибкая проверка городов
+    let zone = "Europe/Moscow"; 
     if (cityName.includes("камчат")) zone = "Asia/Kamchatka";
     else if (cityName.includes("токио")) zone = "Asia/Tokyo";
     else if (cityName.includes("минск")) zone = "Europe/Minsk";
+    else if (cityName.includes("владивосток")) zone = "Asia/Vladivostok";
     else if (cityName.includes("лондон")) zone = "Europe/London";
     else if (cityName.includes("нью-йорк")) zone = "America/New_York";
-    else if (cityName.includes("пекин")) zone = "Asia/Shanghai";
-    else if (cityName.includes("дубай")) zone = "Asia/Dubai";
 
     try {
         const now = new Date();
@@ -35,14 +31,6 @@ function getTimeDetailed(city) {
         let period = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
         return `${timeStr} (сейчас там ${period})`;
     } catch (e) { return "не определено"; }
-}
-
-// Погода
-async function getWeather(city) {
-  try {
-    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
-    return await res.text();
-  } catch (e) { return "недоступно"; }
 }
 
 app.get('/', (req, res) => res.send("🔐 Вход по секретной ссылке."));
@@ -67,7 +55,7 @@ app.get('/chat', (req, res) => {
             .u { background: #0084ff; color: white; margin-left: auto; text-align: right; }
             .b { background: white; border: 1px solid #ddd; text-align: left; }
             .in-area { padding: 15px; background: white; display: flex; gap: 10px; border-top: 1px solid #ccc; }
-            input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #ddd; }
+            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
             button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
         </style></head>
         <body>
@@ -80,7 +68,7 @@ app.get('/chat', (req, res) => {
                 <div id="box"></div>
                 <div class="in-area">
                     <button onclick="recognition && recognition.start()" style="background:#e67e22;">🎤</button>
-                    <input type="text" id="inp" placeholder="Спроси о времени на Камчатке..." onkeypress="if(event.key==='Enter') send()">
+                    <input type="text" id="inp" placeholder="Спроси о времени..." onkeypress="if(event.key==='Enter') send()">
                     <button onclick="send()">ОТПРАВИТЬ</button>
                 </div>
             </div>
@@ -93,11 +81,11 @@ app.get('/chat', (req, res) => {
                 }
                 function save() {
                     const txt = document.getElementById('baseData').value;
-                    fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: '${userPass}', newBase: txt }) }).then(() => alert('Агент запомнил!'));
+                    fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: '${userPass}', newBase: txt }) }).then(() => alert('Сохранено!'));
                 }
                 async function send() {
                     const i = document.getElementById('inp'); const b = document.getElementById('box');
-                    const v = i.value; if(!val=v) return;
+                    const v = i.value; if(!v) return;
                     b.innerHTML += '<div class="m u"><b>Вы:</b> ' + v + '</div>'; i.value = '';
                     b.scrollTop = b.scrollHeight;
                     const r = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: v, password: '${userPass}' }) });
@@ -113,40 +101,25 @@ app.get('/chat', (req, res) => {
 app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.json({ reply: "Пароль не совпал" });
-
     const moscowTime = getTimeDetailed("москва");
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
-
-    const systemPrompt = `Ты агент Олега. Сегодня вторник, 22 сентября 2026 года.
-    Твоя база знаний: ${personalBase}.
-    В Москве сейчас: ${moscowTime}.
-    История беседы: ${history}
-    
-    Если спрашивают время в другом городе, используй TOOL:TIME(Город).`;
-
+    const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026. База знаний: ${personalBase}. В Москве сейчас: ${moscowTime}. История беседы: ${history}. Если спрашивают время города, пиши: TOOL:TIME(Город).`;
     try {
         const response = await fetch(`${BASE_URL}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
-            body: JSON.stringify({
-                model: MODEL_NAME,
-                messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: message }]
-            })
+            body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: message }] })
         });
         const data = await response.json();
         let reply = data.choices[0].message.content;
-
         if (reply.includes('TOOL:TIME')) {
             const m = reply.match(/TOOL:TIME\(([^)]+)\)/);
             if (m) reply = "Время в г. " + m[1] + ": " + getTimeDetailed(m[1]);
         }
-
-        chatHistory.push({ role: 'user', content: message });
-        chatHistory.push({ role: 'assistant', content: reply });
+        chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
         if (chatHistory.length > 20) chatHistory.shift();
-
         res.json({ reply });
-    } catch (e) { res.json({ reply: "Ошибка на сервере" }); }
+    } catch (e) { res.json({ reply: "Ошибка связи" }); }
 });
 
 app.listen(process.env.PORT || 3000);
