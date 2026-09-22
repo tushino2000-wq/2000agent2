@@ -11,6 +11,7 @@ const MY_PASSWORD = process.env.MY_PASSWORD;
 let personalBase = "Имя: Олег. Москва. Solaris. Стол №5. Кот любит кролика.";
 let chatHistory = []; 
 
+// Умный инструмент времени
 function getTimeDetailed(city) {
     const cityName = city.toLowerCase();
     let zone = "Europe/Moscow"; 
@@ -55,8 +56,9 @@ app.get('/chat', (req, res) => {
             .u { background: #0084ff; color: white; margin-left: auto; text-align: right; }
             .b { background: white; border: 1px solid #ddd; text-align: left; }
             .in-area { padding: 15px; background: white; display: flex; gap: 10px; border-top: 1px solid #ccc; }
-            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; }
+            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size:16px; }
             button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+            #micBtn { background: #e67e22; font-size: 20px; }
         </style></head>
         <body>
             <div id="side">
@@ -67,25 +69,59 @@ app.get('/chat', (req, res) => {
             <div id="main">
                 <div id="box"></div>
                 <div class="in-area">
-                    <button onclick="recognition && recognition.start()" style="background:#e67e22;">🎤</button>
-                    <input type="text" id="inp" placeholder="Спроси о времени..." onkeypress="if(event.key==='Enter') send()">
+                    <button id="micBtn" onclick="toggleMic()">🎤</button>
+                    <input type="text" id="inp" placeholder="Напишите или надиктуйте вопрос..." onkeypress="if(event.key==='Enter') send()">
                     <button onclick="send()">ОТПРАВИТЬ</button>
                 </div>
             </div>
             <script>
                 let recognition;
-                if ('webkitSpeechRecognition' in window) {
-                    recognition = new webkitSpeechRecognition();
+                let isListening = false;
+
+                // Инициализация микрофона (поддержка Android Realme и ПК)
+                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                    const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    recognition = new SpeechClass();
                     recognition.lang = 'ru-RU';
-                    recognition.onresult = (e) => { document.getElementById('inp').value = e.results[0][0].transcript; };
+                    recognition.interimResults = false;
+                    
+                    recognition.onresult = (e) => { 
+                        document.getElementById('inp').value = e.results[0][0].transcript; 
+                        stopMic();
+                    };
+                    recognition.onerror = () => { stopMic(); };
+                    recognition.onend = () => { stopMic(); };
                 }
+
+                function toggleMic() {
+                    if (!recognition) { alert("Голосовой ввод не поддерживается вашим браузером."); return; }
+                    const btn = document.getElementById('micBtn');
+                    if (!isListening) {
+                        recognition.start();
+                        btn.innerText = '🛑';
+                        btn.style.background = '#c0392b';
+                        isListening = true;
+                    } else {
+                        stopMic();
+                    }
+                }
+
+                function stopMic() {
+                    if (recognition && isListening) recognition.stop();
+                    const btn = document.getElementById('micBtn');
+                    btn.innerText = '🎤';
+                    btn.style.background = '#e67e22';
+                    isListening = false;
+                }
+
                 function save() {
                     const txt = document.getElementById('baseData').value;
                     fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: '${userPass}', newBase: txt }) }).then(() => alert('Сохранено!'));
                 }
+
                 async function send() {
                     const i = document.getElementById('inp'); const b = document.getElementById('box');
-                    const v = i.value; if(!v) return;
+                    const v = i.value.trim(); if(!v) return;
                     b.innerHTML += '<div class="m u"><b>Вы:</b> ' + v + '</div>'; i.value = '';
                     b.scrollTop = b.scrollHeight;
                     const r = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: v, password: '${userPass}' }) });
@@ -103,7 +139,7 @@ app.post('/ask', async (req, res) => {
     if (password !== MY_PASSWORD) return res.json({ reply: "Пароль не совпал" });
     const moscowTime = getTimeDetailed("москва");
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
-    const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026. База знаний: ${personalBase}. В Москве сейчас: ${moscowTime}. История беседы: ${history}. Если спрашивают время города, пиши: TOOL:TIME(Город).`;
+    const systemPrompt = `Ты агент Олега. Сегодня вторник, 22.09.2026. База знаний: ${personalBase}. В Москве сейчас: ${moscowTime}. История беседы: ${history}. Если спрашивают время города, используй TOOL:TIME(Город).`;
     try {
         const response = await fetch(`${BASE_URL}/chat/completions`, {
             method: 'POST',
