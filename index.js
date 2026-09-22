@@ -11,18 +11,41 @@ const MY_PASSWORD = process.env.MY_PASSWORD;
 let personalBase = "Имя: Олег. Москва. Solaris. Стол №5. Кот любит кролика.";
 let chatHistory = []; 
 
-// Точное время сервера
+// Умный инструмент времени: ищет совпадения по частям слов
 function getTimeDetailed(city) {
-    const zones = { "камчатка": "Asia/Kamchatka", "токио": "Asia/Tokyo", "москва": "Europe/Moscow", "минск": "Europe/Minsk" };
-    const zone = zones[city.toLowerCase()] || "Europe/Moscow";
-    const now = new Date();
-    const timeStr = now.toLocaleString("ru-RU", { timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'long', day: 'numeric', month: 'long' });
-    const hour = parseInt(now.toLocaleString("en-GB", { timeZone: zone, hour: '2-digit', hour12: false }));
-    let p = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
-    return `${timeStr} (${p})`;
+    const cityName = city.toLowerCase();
+    let zone = "Europe/Moscow"; // по умолчанию Москва
+
+    // Гибкая проверка городов
+    if (cityName.includes("камчат")) zone = "Asia/Kamchatka";
+    else if (cityName.includes("токио")) zone = "Asia/Tokyo";
+    else if (cityName.includes("минск")) zone = "Europe/Minsk";
+    else if (cityName.includes("лондон")) zone = "Europe/London";
+    else if (cityName.includes("нью-йорк")) zone = "America/New_York";
+    else if (cityName.includes("пекин")) zone = "Asia/Shanghai";
+    else if (cityName.includes("дубай")) zone = "Asia/Dubai";
+
+    try {
+        const now = new Date();
+        const timeStr = now.toLocaleString("ru-RU", { 
+            timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false, 
+            weekday: 'long', day: 'numeric', month: 'long' 
+        });
+        const hour = parseInt(now.toLocaleString("en-GB", { timeZone: zone, hour: '2-digit', hour12: false }));
+        let period = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
+        return `${timeStr} (сейчас там ${period})`;
+    } catch (e) { return "не определено"; }
 }
 
-app.get('/', (req, res) => res.send("🔐 Вход по ссылке /chat?pass=..."));
+// Погода
+async function getWeather(city) {
+  try {
+    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=%t+%C`);
+    return await res.text();
+  } catch (e) { return "недоступно"; }
+}
+
+app.get('/', (req, res) => res.send("🔐 Вход по секретной ссылке."));
 
 app.post('/update_base', (req, res) => {
     if (req.body.password === MY_PASSWORD) { personalBase = req.body.newBase; res.json({status:'ok'}); }
@@ -42,7 +65,7 @@ app.get('/chat', (req, res) => {
             #box { flex: 1; overflow-y: auto; padding: 20px; }
             .m { margin-bottom: 15px; padding: 12px; border-radius: 12px; max-width: 85%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
             .u { background: #0084ff; color: white; margin-left: auto; text-align: right; }
-            .b { background: white; border: 1px solid #ddd; }
+            .b { background: white; border: 1px solid #ddd; text-align: left; }
             .in-area { padding: 15px; background: white; display: flex; gap: 10px; border-top: 1px solid #ccc; }
             input { flex: 1; padding: 12px; border-radius: 8px; border: 1px solid #ddd; }
             button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
@@ -74,7 +97,7 @@ app.get('/chat', (req, res) => {
                 }
                 async function send() {
                     const i = document.getElementById('inp'); const b = document.getElementById('box');
-                    const v = i.value; if(!v) return;
+                    const v = i.value; if(!val=v) return;
                     b.innerHTML += '<div class="m u"><b>Вы:</b> ' + v + '</div>'; i.value = '';
                     b.scrollTop = b.scrollHeight;
                     const r = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: v, password: '${userPass}' }) });
@@ -94,7 +117,7 @@ app.post('/ask', async (req, res) => {
     const moscowTime = getTimeDetailed("москва");
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
 
-    const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026.
+    const systemPrompt = `Ты агент Олега. Сегодня вторник, 22 сентября 2026 года.
     Твоя база знаний: ${personalBase}.
     В Москве сейчас: ${moscowTime}.
     История беседы: ${history}
@@ -118,7 +141,8 @@ app.post('/ask', async (req, res) => {
             if (m) reply = "Время в г. " + m[1] + ": " + getTimeDetailed(m[1]);
         }
 
-        chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: reply });
         if (chatHistory.length > 20) chatHistory.shift();
 
         res.json({ reply });
