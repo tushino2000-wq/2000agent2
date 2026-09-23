@@ -30,13 +30,18 @@ function getTimeDetailed(city) {
     } catch (e) { return "не определено"; }
 }
 
-app.get('/', (req, res) => res.send("🔐 Вход по секретной ссылке."));
+app.get('/', (req, res) => res.send("🔐 Вход защищен. Используйте секретный URL /chat2026?pass=..."));
 
 app.post('/update_base', (req, res) => {
-    if (req.body.password === MY_PASSWORD) { personalBase = req.body.newBase; res.json({status:'ok'}); }
+    if (req.body.password === MY_PASSWORD) { 
+        personalBase = req.body.newBase; 
+        res.json({ status: 'ok' }); 
+    } else {
+        res.status(401).json({ error: "Неверный пароль" });
+    }
 });
 
-app.get('/chat', (req, res) => {
+app.get('/chat2026', (req, res) => {
     const userPass = req.query.pass;
     if (userPass !== MY_PASSWORD) return res.send("ОШИБКА ДОСТУПА");
     res.send(`
@@ -53,7 +58,7 @@ app.get('/chat', (req, res) => {
             .b { background: white; border: 1px solid #ddd; text-align: left; }
             .b img { max-width: 100%; border-radius: 8px; margin-top: 10px; display: block; border: 1px solid #ccc; }
             .in-area { padding: 15px; background: white; display: flex; gap: 10px; border-top: 1px solid #ccc; }
-            #inp { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size:16px; color: black; }
+            input[type="text"] { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size:16px; color: black; }
             button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
         </style></head>
         <body>
@@ -68,7 +73,7 @@ app.get('/chat', (req, res) => {
                     <button type="button" onclick="document.getElementById('fileInp').click()" style="background:#7f8c8d;">📎</button>
                     <input type="file" id="fileInp" style="display:none" accept="image/*" onchange="attachPhoto(this)">
                     <button type="button" id="micBtn" onclick="toggleMic()" style="background:#e67e22;">🎤</button>
-                    <input type="text" id="inp" placeholder="Напишите сообщение...">
+                    <input type="text" id="inp" placeholder="Напишите сообщение..." onkeypress="if(event.key==='Enter') send()">
                     <button type="button" onclick="send()">ОТПРАВИТЬ</button>
                 </div>
             </div>
@@ -91,11 +96,10 @@ app.get('/chat', (req, res) => {
                 }
                 function stopMic() { if(recognition) recognition.stop(); document.getElementById('micBtn').innerText = '🎤'; document.getElementById('micBtn').style.background = '#e67e22'; isListening = false; }
 
-                // Железный захват фото: просто пишем имя файла в строку ввода
                 function attachPhoto(input) {
                     const file = input.files[0];
                     if (file) {
-                        document.getElementById('inp').value = "Измени это фото (" + file.name + "): сделай в стиле арт";
+                        document.getElementById('inp').value = "Отредактируй это photo (" + file.name + "): сделай красивый арт";
                     }
                 }
 
@@ -106,38 +110,49 @@ app.get('/chat', (req, res) => {
 
                 async function send() {
                     const i = document.getElementById('inp'); const b = document.getElementById('box');
-                    const v = i.value; if(!v) return;
+                    const v = i.value.trim(); if(!v) return;
+                    
                     b.innerHTML += '<div class="m u"><b>Вы:</b> ' + v + '</div>'; i.value = '';
                     b.scrollTop = b.scrollHeight;
                     
-                    const r = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: v, password: '${userPass}' }) });
-                    const d = await r.json();
-                    let txt = d.reply || "Ошибка";
-                    
-                    const reg = /(https:\/\/pollinations\.ai\/p\/[^\s\)]+)/gi;
-                    txt = txt.replace(reg, (u) => '<img src="' + u + '">');
-                    
-                    b.innerHTML += '<div class="m b"><b>ИИ:</b> ' + txt + '</div>';
+                    try {
+                        const r = await fetch('/ask', { 
+                            method: 'POST', 
+                            headers: {'Content-Type': 'application/json'}, 
+                            body: JSON.stringify({ message: v, password: '${userPass}' }) 
+                        });
+                        
+                        if (!r.ok) {
+                            throw new Error("Сервер ответил ошибкой " + r.status);
+                        }
+                        
+                        const d = await r.json();
+                        let txt = d.reply || d.error || "Нет ответа от ИИ";
+                        
+                        const reg = /(https:\/\/pollinations\.ai\/p\/[^\s\)]+)/gi;
+                        txt = txt.replace(reg, (u) => '<img src="' + u + '">');
+                        
+                        b.innerHTML += '<div class="m b"><b>ИИ:</b> ' + txt + '</div>';
+                    } catch (e) {
+                        b.innerHTML += '<div class="m b" style="color:red;"><b>Ошибка отправки:</b> ' + e.message + '</div>';
+                    }
                     b.scrollTop = b.scrollHeight;
                 }
-                
-                // Поддержка Enter
-                document.getElementById('inp').addEventListener('keypress', function(e) {
-                    if (e.key === 'Enter') send();
-                });
             </script>
         </body></html>
     `);
 });
 
 app.post('/ask', async (req, res) => {
+    console.log(`>>> [SERVER LOG] Получен запрос в /ask: "${req.body.message}"`);
     const { message, password } = req.body;
     if (password !== MY_PASSWORD) return res.json({ reply: "Пароль не совпал" });
+    
     const moscowTime = getTimeDetailed("москва");
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
     
-    const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026. База знаний: ${personalBase}. В Москве: ${moscowTime}. История: ${history}. 
-    1. Если просят изменить/нарисовать фото, дай ссылку: https://pollinations.ai/p/[описание_на_английском]?width=1024&height=1024&seed=456
+    const systemPrompt = `Ты агент Олега. Сегодня 23.09.2026. База знаний: ${personalBase}. В Москве: ${moscowTime}. История: ${history}. 
+    1. Если просят изменить или нарисовать фото, дай прямую ссылку: https://pollinations.ai/p/[prompt_на_английском]?width=1024&height=1024&seed=789
     2. Время: TOOL:TIME(Город).`;
 
     try {
@@ -157,7 +172,10 @@ app.post('/ask', async (req, res) => {
         chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
         if (chatHistory.length > 20) chatHistory.shift();
         res.json({ reply });
-    } catch (e) { res.json({ reply: "Ошибка связи" }); }
+    } catch (e) { 
+        console.log(">>> [SERVER ERROR] Ошибка генерации:", e.message);
+        res.json({ reply: "Ошибка связи с ИИ-моделью" }); 
+    }
 });
 
 app.listen(process.env.PORT || 3000);
