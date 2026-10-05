@@ -7,6 +7,10 @@ const BASE_URL = process.env.BASE_URL;
 const MODEL_NAME = process.env.MODEL_NAME;
 const MY_PASSWORD = process.env.MY_PASSWORD;
 
+// Ключ polza.ai для генерации изображений (Nano Banana / Gemini 2.5 Flash Image)
+const POLZA_API_KEY = process.env.POLZA_API_KEY;
+const IMAGE_MODEL = process.env.IMAGE_MODEL || 'google/gemini-2.5-flash-image';
+
 let personalBase = "Имя: Олег. Москва. Solaris. Стол №5. Кот любит кролика.";
 let chatHistory = [];
 
@@ -37,6 +41,48 @@ function getTimeDetailed(city) {
         let period = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
         return `${timeStr} (сейчас там ${period})`;
     } catch (e) { return "не определено"; }
+}
+
+// Генерация изображений через polza.ai (Nano Banana / Gemini 2.5 Flash Image)
+async function generateImage(prompt) {
+    if (!POLZA_API_KEY) {
+        return "Ошибка: не установлен POLZA_API_KEY для генерации изображений";
+    }
+    
+    try {
+        const response = await fetch('https://polza.ai/api/v1/media', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${POLZA_API_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: IMAGE_MODEL,
+                input: {
+                    prompt: prompt,
+                    aspect_ratio: '16:9',
+                    output_format: 'jpeg'
+                },
+                async: false
+            })
+        });
+        
+        const data = await response.json();
+        
+        // Синхронный режим: data.data.url
+        if (data.status === 'completed' && data.data && data.data.url) {
+            return `<img src="${data.data.url}" alt="Сгенерированное изображение">`;
+        } else if (data.error) {
+            console.error('Ошибка polza.ai:', data.error);
+            return `Ошибка генерации: ${data.error.message || 'неизвестная ошибка'}`;
+        } else {
+            console.error('Неожиданный ответ polza.ai:', JSON.stringify(data));
+            return 'Ошибка: изображение не получено';
+        }
+    } catch (e) {
+        console.error('Ошибка генерации изображения:', e);
+        return 'Ошибка связи с сервисом генерации изображений';
+    }
 }
 
 app.get('/', (req, res) => res.send("🔐 Вход по секретной ссылке."));
@@ -180,15 +226,14 @@ app.get('/chat', (req, res) => {
                     b.innerHTML += '<div class="m u"><b>Вы:</b> ' + v + '</div>'; i.value = '';
                     b.scrollTop = b.scrollHeight;
 
+                    b.innerHTML += '<div class="m b"><b>ИИ:</b> <span style="opacity:0.5">печатает...</span></div>';
+                    const loadingMsg = b.lastChild;
+                    b.scrollTop = b.scrollHeight;
+
                     const r = await fetch('/ask', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ message: v, password: ${JSON.stringify(userPass)} }) });
                     const d = await r.json();
-                    let txt = d.reply || "Ошибка";
-
-                    // Ловим ссылку целиком, включая пробелы в описании (до закрывающей скобки/конца строки)
-                    const reg = /(https:\\/\\/pollinations\\.ai\\/p\\/[^\\)\\n]+)/gi;
-                    txt = txt.replace(reg, (u) => '<img src="' + u.trim().replace(/ /g, '%20') + '">');
-
-                    b.innerHTML += '<div class="m b"><b>ИИ:</b> ' + txt + '</div>';
+                    // Изображение приходит уже готовым тегом <img> из бэкенда (polza.ai / Nano Banana)
+                    loadingMsg.innerHTML = '<b>ИИ:</b> ' + (d.reply || "Ошибка");
                     b.scrollTop = b.scrollHeight;
                 }
 
@@ -208,7 +253,7 @@ app.post('/ask', async (req, res) => {
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
 
     const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026. База знаний: ${personalBase}. В Москве: ${moscowTime}. История: ${history}. 
-    1. Если просят изменить/нарисовать фото, дай ссылку: https://pollinations.ai/p/[описание_на_английском_БЕЗ_ПРОБЕЛОВ_через_%20]?width=1024&height=1024&seed=456
+    1. Если просят изменить/нарисовать фото, используй команду: IMAGE_GEN:[описание_на_русском]
     2. Время: TOOL:TIME(Город).`;
 
     try {
@@ -227,6 +272,17 @@ app.post('/ask', async (req, res) => {
 
         let reply = data.choices[0].message.content;
 
+        // Обработка команды IMAGE_GEN
+        if (reply.includes('IMAGE_GEN:')) {
+            const match = reply.match(/IMAGE_GEN:\s*\[([^\]]+)\]/);
+            if (match) {
+                const imagePrompt = match[1];
+                const imageHtml = await generateImage(imagePrompt);
+                reply = reply.replace(/IMAGE_GEN:\s*\[[^\]]+\]/, imageHtml);
+            }
+        }
+
+        // Обработка команды TOOL:TIME
         if (reply.includes('TOOL:TIME')) {
             const m = reply.match(/TOOL:TIME\(([^)]+)\)/);
             if (m) reply = "Время в г. " + m[1] + ": " + getTimeDetailed(m[1]);
