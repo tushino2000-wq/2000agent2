@@ -10,8 +10,14 @@ const MY_PASSWORD = process.env.MY_PASSWORD;
 let personalBase = "Имя: Олег. Москва. Solaris. Стол №5. Кот любит кролика.";
 let chatHistory = [];
 
+// Экранирование для безопасной вставки в HTML (защита от XSS / поломки вёрстки)
 function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function getTimeDetailed(city) {
@@ -20,18 +26,23 @@ function getTimeDetailed(city) {
     if (cityName.includes("камчат")) zone = "Asia/Kamchatka";
     else if (cityName.includes("токио")) zone = "Asia/Tokyo";
     else if (cityName.includes("минск")) zone = "Europe/Minsk";
+
     try {
         const now = new Date();
-        const timeStr = now.toLocaleString("ru-RU", { timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false, weekday: 'long', day: 'numeric', month: 'long' });
+        const timeStr = now.toLocaleString("ru-RU", {
+            timeZone: zone, hour: '2-digit', minute: '2-digit', hour12: false,
+            weekday: 'long', day: 'numeric', month: 'long'
+        });
         const hour = parseInt(now.toLocaleString("en-GB", { timeZone: zone, hour: '2-digit', hour12: false }));
-        let p = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
-        return `${timeStr} (${p})`;
+        let period = (hour >= 5 && hour < 12) ? "УТРО" : (hour >= 12 && hour < 18) ? "ДЕНЬ" : (hour >= 18 && hour < 23) ? "ВЕЧЕР" : "НОЧЬ";
+        return `${timeStr} (сейчас там ${period})`;
     } catch (e) { return "не определено"; }
 }
 
 app.get('/', (req, res) => res.send("🔐 Вход по секретной ссылке."));
 
 app.post('/update_base', (req, res) => {
+    // ИСПРАВЛЕНО: раньше при неверном пароле ответ не отправлялся и запрос висел до таймаута
     if (req.body.password === MY_PASSWORD) {
         personalBase = req.body.newBase;
         return res.json({ status: 'ok' });
@@ -47,19 +58,54 @@ app.get('/chat', (req, res) => {
         <html>
         <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Агент Олега 2026</title>
         <style>
+            * { box-sizing: border-box; }
             body { font-family: sans-serif; display: flex; height: 100vh; margin: 0; background: #2c3e50; color: white; }
             #side { width: 260px; padding: 15px; background: #34495e; border-right: 1px solid #222; overflow-y:auto; }
             #main { flex: 1; display: flex; flex-direction: column; background: #f0f2f5; color: black; }
             #box { flex: 1; overflow-y: auto; padding: 20px; }
-            .m { margin-bottom: 15px; padding: 12px; border-radius: 12px; max-width: 85%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            .m { margin-bottom: 15px; padding: 12px; border-radius: 12px; max-width: 85%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); word-wrap: break-word; }
             .u { background: #0084ff; color: white; margin-left: auto; text-align: right; }
             .b { background: white; border: 1px solid #ddd; text-align: left; }
             .b img { max-width: 100%; border-radius: 8px; margin-top: 10px; display: block; border: 1px solid #ccc; }
             .in-area { padding: 15px; background: white; display: flex; gap: 10px; border-top: 1px solid #ccc; }
             #inp { flex: 1; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size:16px; color: black; }
-            button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+            button { padding: 12px; background: #27ae60; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; min-width: 44px; }
+            #toggleSide { display: none; position: fixed; top: 10px; left: 10px; z-index: 1000; background: #34495e; padding: 10px 15px; border-radius: 8px; }
+            
+            /* Мобильная адаптация */
+            @media (max-width: 768px) {
+                body { flex-direction: column; }
+                #side { 
+                    position: fixed; 
+                    top: 0; 
+                    left: -100%; 
+                    width: 80%; 
+                    max-width: 300px; 
+                    height: 100vh; 
+                    z-index: 999; 
+                    transition: left 0.3s ease;
+                    border-right: none;
+                    box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+                }
+                #side.open { left: 0; }
+                #toggleSide { display: block; }
+                #box { padding: 60px 10px 10px 10px; }
+                .in-area { padding: 10px; gap: 5px; }
+                #inp { font-size: 16px; padding: 10px; }
+                button { padding: 10px; font-size: 14px; }
+                .m { max-width: 90%; font-size: 15px; }
+                #baseData { height: 150px !important; }
+            }
+            
+            @media (max-width: 480px) {
+                #box { padding: 60px 5px 5px 5px; }
+                .in-area { padding: 8px; gap: 4px; }
+                button { padding: 8px; min-width: 40px; }
+                .m { padding: 10px; font-size: 14px; }
+            }
         </style></head>
         <body>
+            <button id="toggleSide" onclick="toggleSidebar()">☰ База</button>
             <div id="side">
                 <h3>🏠 Знания Агента</h3>
                 <textarea id="baseData" style="width:100%; height:200px; background:#1e272e; color:white; border:1px solid #555; padding:5px;">${escapeHtml(personalBase)}</textarea>
@@ -72,29 +118,60 @@ app.get('/chat', (req, res) => {
                     <input type="file" id="fileInp" style="display:none" accept="image/*" onchange="attachPhoto(this)">
                     <button type="button" id="micBtn" onclick="toggleMic()" style="background:#e67e22;">🎤</button>
                     <input type="text" id="inp" placeholder="Напишите сообщение...">
-                    <button type="button" onclick="send()">ОТПРАВИТЬ</button>
+                    <button type="button" onclick="send()">➤</button>
                 </div>
             </div>
             <script>
                 let recognition;
                 let isListening = false;
+
                 if ('webkitSpeechRecognition' in window) {
-                    recognition = new webkitSpeechRecognition(); recognition.lang = 'ru-RU';
+                    recognition = new webkitSpeechRecognition();
+                    recognition.lang = 'ru-RU';
                     recognition.onresult = (e) => { document.getElementById('inp').value = e.results[0][0].transcript; stopMic(); };
                     recognition.onend = stopMic;
                 }
-                function toggleMic() { if(!recognition) return; if (!isListening) { recognition.start(); document.getElementById('micBtn').innerText = '🛑'; isListening = true; } else stopMic(); }
-                function stopMic() { if(recognition) recognition.stop(); document.getElementById('micBtn').innerText = '🎤'; isListening = false; }
 
+                function toggleSidebar() {
+                    const side = document.getElementById('side');
+                    side.classList.toggle('open');
+                }
+
+                // Закрытие сайдбара при клике вне его на мобильных
+                document.addEventListener('click', function(e) {
+                    const side = document.getElementById('side');
+                    const toggle = document.getElementById('toggleSide');
+                    if (window.innerWidth <= 768 && side.classList.contains('open') && 
+                        !side.contains(e.target) && !toggle.contains(e.target)) {
+                        side.classList.remove('open');
+                    }
+                });
+
+                function toggleMic() {
+                    if(!recognition) return;
+                    const btn = document.getElementById('micBtn');
+                    if (!isListening) { recognition.start(); btn.innerText = '🛑'; btn.style.background = '#c0392b'; isListening = true; }
+                    else stopMic();
+                }
+                function stopMic() { if(recognition) recognition.stop(); document.getElementById('micBtn').innerText = '🎤'; document.getElementById('micBtn').style.background = '#e67e22'; isListening = false; }
+
+                // Железный захват фото: просто пишем имя файла в строку ввода
                 function attachPhoto(input) {
                     const file = input.files[0];
-                    if (file) { document.getElementById('inp').value = "Используй это фото (" + file.name + ") и создай на его основе: "; }
+                    if (file) {
+                        document.getElementById('inp').value = "Измени это фото (" + file.name + "): сделай в стиле арт";
+                    }
                 }
 
                 function save() {
                     const txt = document.getElementById('baseData').value;
                     fetch('/update_base', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ password: ${JSON.stringify(userPass)}, newBase: txt }) })
-                        .then(r => r.json()).then(d => alert(d.status === 'ok' ? 'Сохранено!' : 'Ошибка'));
+                        .then(r => r.json())
+                        .then(d => {
+                            alert(d.status === 'ok' ? 'Сохранено!' : 'Ошибка доступа');
+                            if (window.innerWidth <= 768) document.getElementById('side').classList.remove('open');
+                        })
+                        .catch(() => alert('Ошибка сети'));
                 }
 
                 async function send() {
@@ -107,17 +184,18 @@ app.get('/chat', (req, res) => {
                     const d = await r.json();
                     let txt = d.reply || "Ошибка";
 
-                    // ИСПРАВЛЕННАЯ регулярка: ищем ссылку и чистим её от лишних символов
-                    const reg = /(https:\\/\\/pollinations\\.ai\\/p\\/[^\\s\\)\\n]+)/gi;
-                    txt = txt.replace(reg, (u) => {
-                        let cleanUrl = u.trim().replace(/[\\)\\(\\*\\_]+$/, ''); // Чистим хвост от скобок и звездочек
-                        return '<img src="' + cleanUrl + '">';
-                    });
+                    // Ловим ссылку целиком, включая пробелы в описании (до закрывающей скобки/конца строки)
+                    const reg = /(https:\\/\\/pollinations\\.ai\\/p\\/[^\\)\\n]+)/gi;
+                    txt = txt.replace(reg, (u) => '<img src="' + u.trim().replace(/ /g, '%20') + '">');
 
                     b.innerHTML += '<div class="m b"><b>ИИ:</b> ' + txt + '</div>';
                     b.scrollTop = b.scrollHeight;
                 }
-                document.getElementById('inp').addEventListener('keypress', function(e) { if (e.key === 'Enter') send(); });
+
+                // Поддержка Enter
+                document.getElementById('inp').addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') send();
+                });
             </script>
         </body></html>
     `);
@@ -125,17 +203,13 @@ app.get('/chat', (req, res) => {
 
 app.post('/ask', async (req, res) => {
     const { message, password } = req.body;
-    if (password !== MY_PASSWORD) return res.json({ reply: "Ошибка пароля" });
+    if (password !== MY_PASSWORD) return res.json({ reply: "Пароль не совпал" });
     const moscowTime = getTimeDetailed("москва");
     const history = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'Олег' : 'Агент'}: ${m.content}`).join('\n');
 
-    // УЛУЧШЕННЫЙ ПРОМПТ ДЛЯ РЕДАКТИРОВАНИЯ ФОТО
-    const systemPrompt = `Ты агент Олега. 23.09.2026. База: ${personalBase}. Москва: ${moscowTime}. История: ${history}. 
-    ИНСТРУКЦИИ ПО ФОТО:
-    1. Если пользователь прислал имя файла и просит что-то сделать (изменить/нарисовать), проанализируй описание и создай НОВУЮ картинку.
-    2. Ссылку пиши строго так: https://pollinations.ai/p/[английское_описание]?width=1024&height=1024&seed=[число]
-    3. В [английское_описание] заменяй все пробелы на %20. НЕ используй Markdown (никаких [] или () для ссылок), просто голый текст ссылки.
-    4. Если спрашивают время: TOOL:TIME(Город).`;
+    const systemPrompt = `Ты агент Олега. Сегодня 22.09.2026. База знаний: ${personalBase}. В Москве: ${moscowTime}. История: ${history}. 
+    1. Если просят изменить/нарисовать фото, дай ссылку: https://pollinations.ai/p/[описание_на_английском_БЕЗ_ПРОБЕЛОВ_через_%20]?width=1024&height=1024&seed=456
+    2. Время: TOOL:TIME(Город).`;
 
     try {
         const response = await fetch(`${BASE_URL}/chat/completions`, {
@@ -144,19 +218,29 @@ app.post('/ask', async (req, res) => {
             body: JSON.stringify({ model: MODEL_NAME, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: message }] })
         });
         const data = await response.json();
-        if (!data.choices || !data.choices[0]) return res.json({ reply: "API Error" });
+
+        // ИСПРАВЛЕНО: защита от отсутствия choices (ошибка API не маскируется под "Ошибка связи")
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            console.error('Некорректный ответ API:', JSON.stringify(data));
+            return res.json({ reply: "API вернул ошибку. Проверь ключ и настройки." });
+        }
 
         let reply = data.choices[0].message.content;
 
         if (reply.includes('TOOL:TIME')) {
             const m = reply.match(/TOOL:TIME\(([^)]+)\)/);
-            if (m) reply = "Время в " + m[1] + ": " + getTimeDetailed(m[1]);
+            if (m) reply = "Время в г. " + m[1] + ": " + getTimeDetailed(m[1]);
         }
 
         chatHistory.push({ role: 'user', content: message }, { role: 'assistant', content: reply });
         if (chatHistory.length > 20) chatHistory.shift();
         res.json({ reply });
-    } catch (e) { res.json({ reply: "Ошибка связи" }); }
+    } catch (e) {
+        console.error('Ошибка связи:', e);
+        res.json({ reply: "Ошибка связи" });
+    }
 });
 
-app.listen(process.env.PORT || 3000);
+app.listen(process.env.PORT || 3000, () => {
+    console.log(`Сервер запущен на порту ${process.env.PORT || 3000}`);
+});
